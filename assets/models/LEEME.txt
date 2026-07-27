@@ -1,0 +1,6 @@
+Los .glb generados por tools/build_models.sh aparecen aqui (romero.glb,
+parasite.glb, drake.glb) y el juego los detecta SOLO (plug and play).
+
+Estan en .gitignore a proposito: Mixamo no permite redistribuir sus assets
+sueltos y este repo es publico. Sin ellos el juego usa automaticamente el
+modelo CC0 de respaldo, asi que la web publica sigue funcionando.

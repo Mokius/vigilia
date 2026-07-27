@@ -1,19 +1,21 @@
 // =============================================================================
-// enemyManager.js — Spawns and orchestrates creatures for a night. Uses a
-// seeded PRNG so a night is reproducible (and could be synced across projectors).
-// Handles anchor occupancy, per-night difficulty, and forwards enemy events to
-// the bus. Reports a "tension" scalar = how close the nearest threat is.
+// enemyManager.js — Spawns and orchestrates the cast for one night. Seeded PRNG
+// so a night is reproducible. Keeps one creature per route, applies the night's
+// difficulty envelope, and tells the world when a vent/hatch must physically
+// open (a creature is using it).
 // =============================================================================
 
-import { Enemy, EnemyState } from './enemy.js';
+import { Enemy, EState } from './enemy.js';
 import { ENEMY_TYPES, nightParams } from './enemyTypes.js';
+import { ROUTES } from './routes.js';
 import { mulberry32, randRange } from '../core/util.js';
 
-const ALIVE = (e) => e.state === EnemyState.LURK || e.state === EnemyState.ATTACK;
+const LIVE = (e) => e.state !== EState.DONE;
+const THREATENING = (e) => e.state === EState.APPROACH || e.state === EState.ATTACK;
 
 export class EnemyManager {
   constructor(scene, room, eye, bus) {
-    this.scene = scene; this.room = room; this.eye = eye; this.bus = bus;
+    Object.assign(this, { scene, room, eye, bus });
     this.enemies = []; this.active = false; this.tension = 0;
   }
 
@@ -22,54 +24,73 @@ export class EnemyManager {
     this.night = night;
     this.params = nightParams(night);
     this.rng = mulberry32((0x9e3779b9 ^ Math.imul(night, 2654435761)) >>> 0);
-    this.spawnTimer = randRange(this.rng, 1.5, 3.0);
+    this.spawnTimer = randRange(this.rng, 2.0, 4.0);
     this.active = true; this.tension = 0;
   }
 
   stop() {
     for (const e of this.enemies) e.dispose();
     this.enemies = []; this.active = false; this.tension = 0;
+    this.room.setVent(0); this.room.setHatch(0); this.room.setDoor(0);
   }
 
-  _freeAnchors(typeAnchors) {
-    const used = new Set(this.enemies.filter(ALIVE).map((e) => e.anchor.name));
-    return this.room.spawnAnchors.filter((a) => typeAnchors.includes(a.name) && !used.has(a.name));
-  }
+  _busyRoutes() { return new Set(this.enemies.filter(LIVE).map((e) => e.routeName)); }
 
   _spawn() {
-    const pool = ENEMY_TYPES.filter((t) => t.minNight <= this.night && this._freeAnchors(t.anchors).length);
+    const busy = this._busyRoutes();
+    const pool = ENEMY_TYPES.filter((t) => t.minNight <= this.night
+      && t.routes.some((r) => !busy.has(r)));
     if (!pool.length) return;
-    const bag = [];
-    for (const t of pool) for (let i = 0; i < t.weight; i++) bag.push(t);
+    const bag = []; for (const t of pool) for (let i = 0; i < t.weight; i++) bag.push(t);
     const type = bag[(this.rng() * bag.length) | 0];
-    const anchors = this._freeAnchors(type.anchors);
-    const anchor = anchors[(this.rng() * anchors.length) | 0];
-    const e = new Enemy(type, anchor, this.scene, this.eye, mulberry32((this.rng() * 1e9) >>> 0),
-      this.params.advanceMul, this.params.cueMul);
+
+    // Sometimes it's just a fly-by across the corridor: a scare with no threat.
+    let routeName;
+    if (type.crossRoute && !busy.has(type.crossRoute) && this.rng() < this.params.crossChance) {
+      routeName = type.crossRoute;
+    } else {
+      const free = type.routes.filter((r) => !busy.has(r));
+      if (!free.length) return;
+      routeName = free[(this.rng() * free.length) | 0];
+    }
+
+    const scaled = Object.assign({}, type, {
+      advanceSpeed: type.advanceSpeed * this.params.speedMul,
+    });
+    const e = new Enemy(scaled, routeName, this.scene, this.eye, mulberry32((this.rng() * 1e9) >>> 0));
     this.enemies.push(e);
-    this.bus.emit('spawn', { name: type.name, pan: anchor.pan });
+    this.bus.emit('spawn', { name: type.name, pan: ROUTES[routeName].pan, route: routeName });
   }
 
   update(dt, flashlight) {
     if (!this.active) return { tension: this.tension, scared: false };
     let scared = false;
 
-    const activeCount = this.enemies.filter(ALIVE).length;
+    const live = this.enemies.filter(THREATENING).length;
     this.spawnTimer -= dt;
-    if (this.spawnTimer <= 0 && activeCount < this.params.maxConcurrent) {
+    if (this.spawnTimer <= 0 && live < this.params.maxConcurrent) {
       this.spawnTimer = randRange(this.rng, ...this.params.spawnInterval);
       this._spawn();
     }
 
     let maxThreat = 0;
     for (const e of this.enemies) {
-      const evs = e.update(dt, flashlight, this.bus);
-      if (evs) for (const ev of evs) { if (ev.type === 'scare') scared = ev.payload; this.bus.emit(ev.type, ev.payload); }
+      const evs = e.update(dt, flashlight);
+      for (const ev of evs) {
+        if (ev.type === 'scare') scared = ev.payload;
+        this.bus.emit(ev.type, ev.payload);
+      }
       e.animate(dt);
-      if (ALIVE(e)) maxThreat = Math.max(maxThreat, e.p);
+      if (THREATENING(e)) maxThreat = Math.max(maxThreat, e.p);
     }
-    for (const e of this.enemies) if (e.state === EnemyState.DONE) e.dispose();
-    this.enemies = this.enemies.filter((e) => e.state !== EnemyState.DONE);
+    for (const e of this.enemies) if (e.state === EState.DONE) e.dispose();
+    this.enemies = this.enemies.filter(LIVE);
+
+    // physical openings follow whoever is actually using them
+    const routes = new Set(this.enemies.filter(LIVE).map((e) => e.routeName));
+    this.room.setVent(routes.has('vent') ? 1 : 0);
+    this.room.setHatch(routes.has('hatch') ? 1 : 0);
+    this.room.setDoor(routes.has('door') ? 1 : 0);
 
     this.tension += (maxThreat - this.tension) * Math.min(1, dt * 2);
     return { tension: this.tension, scared };

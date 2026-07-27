@@ -1,49 +1,53 @@
 // =============================================================================
-// enemyTypes.js — Data-driven roster. Add a creature by adding an entry.
-// `modelUrl` (null = procedural) accepts a CORS-served .glb for a real model.
-// `scream` picks the jumpscare audio variant; `face` picks the jumpscare visual.
+// enemyTypes.js — The cast. Adding a creature = adding an entry here.
+// `modelKey` points at CONFIG.models.<key>, whose URL list is probed at runtime
+// (drop the real Mixamo GLB in assets/models/ and it is used automatically).
 // =============================================================================
 
 export const ENEMY_TYPES = [
   {
-    id: 'watcher', name: 'El Vigía', model: 'watcher', modelUrl: null,
-    anchors: ['door', 'corridor', 'corner_l'],
-    banishTime: 0.55, advanceInterval: [2.6, 3.8], advanceStep: 0.11,
-    cueInterval: [3.0, 5.0], cues: ['footstep', 'knock'],
-    eyeColor: 0xbfe0ff, weight: 3, minNight: 1, speedMul: 1.0,
+    id: 'romero', name: 'ROMERO', modelKey: 'romero',
+    height: 1.85,
+    routes: ['door', 'corridor', 'corner_l', 'corner_r'],
+    crossRoute: 'corridorCross',
+    advanceSpeed: 0.042,      // ~24 s from cover to the player, unobserved
+    retreatSpeed: 0.34, crossSpeed: 0.22,
+    banishTime: 0.55,
+    cueInterval: [3.0, 5.2], cues: ['footstep', 'knock'],
+    eyeColor: 0xbfe0ff, weight: 3, minNight: 1,
     scream: 'shriek', face: 'gaunt',
   },
   {
-    id: 'crawler', name: 'La Cosa del Conducto', model: 'crawler', modelUrl: null,
-    anchors: ['vent', 'hatch', 'corner_l'],
-    banishTime: 0.70, advanceInterval: [1.9, 2.7], advanceStep: 0.15,
-    cueInterval: [2.4, 4.0], cues: ['scrape', 'footstep'],
-    eyeColor: 0xffd27a, weight: 2, minNight: 1, speedMul: 1.15,
+    id: 'parasite', name: 'PARÁSITO', modelKey: 'parasite',
+    height: 1.50,
+    routes: ['vent', 'hatch'],
+    crossRoute: null,
+    advanceSpeed: 0.055,
+    retreatSpeed: 0.4, crossSpeed: 0.25,
+    banishTime: 0.70,
+    cueInterval: [2.4, 4.0], cues: ['scrape', 'breath'],
+    eyeColor: 0xffd27a, weight: 2, minNight: 1,
     scream: 'gurgle', face: 'maw',
   },
   {
-    id: 'peeker', name: 'El que Observa', model: 'peeker', modelUrl: null,
-    anchors: ['window'],
-    banishTime: 0.45, advanceInterval: [3.0, 4.5], advanceStep: 0.09,
-    cueInterval: [3.5, 6.0], cues: ['whisper', 'breath'],
-    eyeColor: 0xff5a5a, weight: 2, minNight: 2, speedMul: 0.9,
-    scream: 'whisperscream', face: 'face',
-  },
-  {
-    id: 'runner', name: 'El Corredor', model: 'watcher', modelUrl: null,
-    anchors: ['corridor', 'door', 'hatch'],
-    banishTime: 0.95, advanceInterval: [1.1, 1.7], advanceStep: 0.2,
-    cueInterval: [1.6, 2.8], cues: ['footstep', 'scrape'],
-    eyeColor: 0xff7a2a, weight: 1, minNight: 3, speedMul: 1.4,
-    scream: 'roar', face: 'gaunt',
+    id: 'drake', name: 'DRAKE', modelKey: 'drake',
+    height: 1.90,
+    routes: ['window', 'corridor'],
+    crossRoute: 'corridorCross',
+    advanceSpeed: 0.036,
+    retreatSpeed: 0.3, crossSpeed: 0.2,
+    banishTime: 0.90,
+    cueInterval: [3.4, 6.0], cues: ['knock', 'whisper'],
+    eyeColor: 0xff5a5a, weight: 2, minNight: 2,
+    scream: 'roar', face: 'face',
   },
 ];
 
 export function nightParams(night) {
   return {
-    maxConcurrent: Math.min(4, 1 + Math.floor(night / 1.5)),
-    spawnInterval: [Math.max(3.5, 9 - night * 0.9), Math.max(6, 15 - night * 1.1)],
-    advanceMul: 1 + (night - 1) * 0.14,
-    cueMul: Math.max(0.6, 1 - (night - 1) * 0.06),
+    maxConcurrent: Math.min(3, 1 + Math.floor(night / 2)),
+    spawnInterval: [Math.max(4.0, 10 - night * 0.9), Math.max(7, 16 - night * 1.2)],
+    speedMul: 1 + (night - 1) * 0.16,
+    crossChance: 0.22,          // odds a spawn is a harmless fly-by scare
   };
 }

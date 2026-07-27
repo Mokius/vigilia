@@ -64,14 +64,17 @@ export class PostFX {
         tScene: { value: null }, tBloom: { value: null }, uTime: { value: 0 },
         uBloom: { value: b.strength }, uGrain: { value: CONFIG.render.grain },
         uVignette: { value: CONFIG.render.vignette }, uAberr: { value: CONFIG.render.aberration },
-        uScare: { value: 0 },
+        uScare: { value: 0 }, uShake: { value: new THREE.Vector2(0, 0) },
       },
       vertexShader: VERT,
       fragmentShader: `precision highp float; varying vec2 vUv;
         uniform sampler2D tScene, tBloom; uniform float uTime,uBloom,uGrain,uVignette,uAberr,uScare;
+        uniform vec2 uShake;
         float hash(vec2 p){ p=fract(p*vec2(443.897,441.423)); p+=dot(p,p+19.19); return fract(p.x*p.y); }
         void main(){
-          vec2 uv = vUv; vec2 d = uv - 0.5;
+          // Screen-space shake: a jumpscare must jolt the image WITHOUT moving
+          // the CAVE cameras, or the off-axis projection would break.
+          vec2 uv = clamp(vUv + uShake, 0.0, 1.0); vec2 d = uv - 0.5;
           float ab = uAberr * (1.0 + uScare*5.0);
           vec3 col;
           col.r = texture2D(tScene, uv + d*ab).r;
@@ -109,8 +112,12 @@ export class PostFX {
   }
 
   // Call AFTER the scene has been rendered directly to the screen.
-  process(t, scare = 0) {
+  process(t, scare = 0, shake = 0) {
     const r = this.renderer;
+    const u0 = this.composite.mesh.material.uniforms.uShake.value;
+    if (shake > 0.001) {
+      u0.set((Math.random() - 0.5) * 0.045 * shake, (Math.random() - 0.5) * 0.045 * shake);
+    } else u0.set(0, 0);
     r.copyFramebufferToTexture(this._zero, this.sceneTex);   // screen → texture
 
     this.blurH.mesh.material.uniforms.uTexel.value.set(1 / this._hw, 1 / this._hh);

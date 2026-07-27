@@ -1,113 +1,104 @@
 // =============================================================================
-// config.js — Single source of truth for the whole experience.
-// Physical constants come from the real Ubicuity U-Box (3 × 3 × 2.5 m).
-// Everything tunable lives here so systems stay decoupled from magic numbers.
+// config.js — Single source of truth. Physical constants come from the real
+// Ubicuity U-Box (3 x 3 x 2.5 m). See docs/FASE1_ESCENARIO.md for the rationale
+// behind every dimension here.
 // =============================================================================
 
 export const CONFIG = {
   // ---- Physical room (metres). Origin = floor centre. Y up, -Z = front. ----
   room: {
-    W: 3.0,   // width  (x span)  -> walls at x = ±1.5
-    D: 3.0,   // depth  (z span)  -> front wall z = -1.5, back z = +1.5
-    H: 2.5,   // height (y span)  -> ceiling y = 2.5
-    eye: [0, 1.6, 0],   // operator eye point (CAVE apex)
+    W: 3.0, D: 3.0, H: 2.5,
+    eye: [0, 1.6, 0],          // CAVE apex = the operator's eye
   },
 
-  // ---- Projection / screen strip ----
-  // The 4 panels render in one canvas as a contiguous strip: LEFT FRONT RIGHT FLOOR.
-  // Floor projector only covers the TOP fraction of its panel (U-Box constraint).
-  screen: {
-    floorCover: 0.70,   // matches shared/cube.css --floor-cover on the real rig
-    near: 0.05,
-    far: 60,
-  },
+  // The 4 panels render as a contiguous strip: LEFT FRONT RIGHT FLOOR.
+  screen: { floorCover: 0.70, near: 0.05, far: 60 },
 
-  // ---- Renderer / performance ----
   render: {
-    maxPixelRatio: 1.75,     // clamp DPR (4 viewports = 4× draw cost)
+    maxPixelRatio: 1.75,
     shadowMapSize: 2048,
-    exposure: 1.2,           // ACES filmic
-    post: true,              // master toggle for the post pipeline
+    exposure: 1.2,
+    post: true,
     bloom: { threshold: 0.48, strength: 1.1, radius: 0.7 },
-    grain: 0.042,
-    vignette: 1.1,
-    aberration: 0.0016,
+    grain: 0.042, vignette: 1.1, aberration: 0.0016,
   },
 
-  // ---- Atmosphere ----
   atmos: {
-    fogColor: 0x080a12,
-    fogDensity: 0.115,       // exp2 fog
-    ambient: 0x0b0e15,       // near-black fill so pure-black isn't crushed
-    ambientIntensity: 0.13,
+    fogColor: 0x080a12, fogDensity: 0.115,
+    ambient: 0x0b0e15, ambientIntensity: 0.13,
     dustCount: 550,
   },
 
-  // ---- Flashlight ----
   flashlight: {
-    color: 0xffe9c6,
-    intensity: 55,
-    distance: 16,
-    angle: 0.40,             // radians, cone half-angle
-    penumbra: 0.52,
-    decay: 1.05,
-    // aim limits (radians): can look up a little, sweep fully down to the floor
-    pitchMin: -1.52,
-    pitchMax: 0.42,
-    yawSpeed: 0.0022,        // pointer-lock sensitivity
-    pitchSpeed: 0.0022,
-    smoothing: 0.18,         // aim lerp per frame
+    color: 0xffe9c6, intensity: 55, distance: 16,
+    angle: 0.40, penumbra: 0.52, decay: 1.05,
+    pitchMin: -1.52, pitchMax: 0.42,
+    yawSpeed: 0.0022, pitchSpeed: 0.0022, smoothing: 0.18,
+    // ---- FINITE battery (docs/FASE1_ESCENARIO.md §5) ----
     battery: {
       enabled: true,
-      drainPerSec: 2.4,      // % per second while on (drains fast → the shutdown matters)
-      flickerBelow: 28,      // start flickering under this %
-    },
-    // Recharge by shining the beam on a green wall cell.
-    recharge: {
-      litThreshold: 0.4,     // beam must be on the cell this strongly
-      dwell: 0.85,           // seconds of light to trigger a charge
-      amount: 32,            // % restored per charge (partial, on purpose)
-      cellCooldown: [11, 20],// seconds a spent cell stays dark before relighting
+      drainPerSec: 2.5,        // 100% -> ~40 s of continuous light
+      flickerBelow: 25,
+      warnBelow: 25,
     },
   },
 
-  // ---- Gameplay ----
+  // Battery pickups: physical objects, aim to collect, finite.
+  pickups: {
+    count: 6,
+    dwell: 1.5,                // seconds of continuous aim to collect
+    amount: 28,                // % restored (never a full charge)
+    litThreshold: 0.35,
+    maxAngle: 0.17,            // must be near the beam axis, not just in the cone
+  },
+
+  // Aim-to-activate for the diegetic menu controls. `maxAngle` is a TIGHT
+  // angular window (~5.7°) because the levers sit close together and the lit
+  // cone (~23°) is far too coarse to disambiguate them.
+  interact: { dwell: 1.2, litThreshold: 0.3, maxAngle: 0.10 },
+
   game: {
     startNight: 1,
-    nightSeconds: 150,       // survive this long per night
-    sanityMax: 100,
-    // How long a light must dwell on an enemy to banish it (seconds).
-    banishDwell: 0.55,
-    // Grace after a banish before that anchor can re-trigger.
-    anchorCooldown: [6, 12],
+    nightSeconds: 150,
+    clockFrom: 0, clockTo: 6,  // wall clock reads 00:00 -> 06:00
   },
 
-  audio: {
-    masterGain: 0.9,
-    // Map a world direction to a stereo pan target. The strip is physically
-    // LEFT | FRONT | RIGHT so left events pan left, right events pan right,
-    // front events stay centred, behind is widened + low-passed.
-    duckOnScare: 0.25,
+  audio: { masterGain: 0.9, duckOnScare: 0.25 },
+
+  // Distinctive but legible type. Loaded from Google Fonts with robust
+  // fallbacks — if the installation is offline the fallbacks still read well.
+  fonts: {
+    crt: '"Share Tech Mono", ui-monospace, Consolas, "Courier New", monospace',
+    stencil: '"Special Elite", "Arial Narrow", Impact, sans-serif',
+  },
+
+  // Plug-and-play models. Each entry is tried IN ORDER; first one that loads
+  // wins, and if none do we fall back to the procedural creature. Drop the
+  // Mixamo GLBs into assets/models/ (see docs/MIXAMO_INGESTA.md) and they are
+  // picked up automatically with no code change.
+  models: {
+    probeTimeoutMs: 9000,
+    romero:   ['assets/models/romero.glb'],
+    parasite: ['assets/models/parasite.glb'],
+    drake:    ['assets/models/drake.glb'],
+    // Licence-clean CC0/Mixamo-derived fallbacks served with CORS. Verified.
+    fallbackHumanoid: [
+      'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/models/gltf/Xbot.glb',
+      'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/models/gltf/Soldier.glb',
+    ],
   },
 
   debug: false,
 };
 
-// Derived screen rectangles (world-space corners) for the 4 CAVE cameras.
-// Corners: pa = bottom-left, pb = bottom-right, pc = top-left, as seen from the eye.
-// Adjacent walls share an edge exactly, so the render is seamless at the corners.
+// Screen rectangles (world corners) for the 4 off-axis CAVE cameras.
+// Adjacent walls share an edge exactly => seamless corners.
 export function screenRects() {
   const w = CONFIG.room.W / 2, d = CONFIG.room.D / 2, h = CONFIG.room.H;
   return {
-    // Front wall (z = -d). Left→right = -x→+x.
     front: { pa: [-w, 0, -d], pb: [ w, 0, -d], pc: [-w, h, -d] },
-    // Left wall (x = -w). Panel left edge = back (z=+d), right edge = front (z=-d),
-    // so LEFT.pb === FRONT.pa (shared front-left corner) -> seamless seam.
     left:  { pa: [-w, 0,  d], pb: [-w, 0, -d], pc: [-w, h,  d] },
-    // Right wall (x = +w). Left edge = front (z=-d) so RIGHT.pa === FRONT.pb.
     right: { pa: [ w, 0, -d], pb: [ w, 0,  d], pc: [ w, h, -d] },
-    // Floor (y = 0). Image "up" = toward the front wall (-z), so the floor's top
-    // edge continues the front wall's bottom edge when the beam sweeps down.
     floor: { pa: [-w, 0,  d], pb: [ w, 0,  d], pc: [-w, 0, -d] },
   };
 }

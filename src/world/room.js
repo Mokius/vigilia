@@ -1,13 +1,13 @@
 // =============================================================================
-// room.js — Procedural derelict security post. Each surface reads as something:
-//   FRONT  = a corridor opening receding into the dark, with side doors + a red
-//            exit glow (a monster can walk up the hall).
-//   LEFT   = a heavy door, slightly ajar, with a recess behind it.
-//   RIGHT  = a smashed observation window with a sill (a monster can climb in).
-//   FRONT-low = an air vent whose louvers swing open (with a duct rattle).
-//   FLOOR  = a maintenance hatch/grate a crawler can push up through.
-// Dim red emergency light + a stuttering fluorescent keep the space readable
-// and tense. Green BATTERY CELLS glow on the walls — light them to recharge.
+// room.js — The night-watch control post, built to docs/FASE1_ESCENARIO.md §2.
+// Every opening exists because a real building would need it, and each one is a
+// creature's way in:
+//   FRONT  corridor (with side doors + red exit backlight) + low air vent
+//   LEFT   heavy door, ajar 32° -> the "slit"
+//   RIGHT  smashed observation window with a sill to climb over
+//   FLOOR  drainage hatch with a grate
+// Plus the diegetic wall CLOCK (the night timer) and the shadow pockets S1..S6
+// that creatures are allowed to occupy.
 // =============================================================================
 
 import * as THREE from 'three';
@@ -17,22 +17,20 @@ import { buildTextures } from './textures.js';
 const V3 = THREE.Vector3;
 
 function tiled(maps, rx, ry) {
-  const c = {};
+  const o = {};
   for (const k of ['map', 'normalMap', 'roughnessMap']) {
     if (!maps[k]) continue;
     const t = maps[k].clone(); t.needsUpdate = true;
     t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rx, ry);
-    c[k] = t;
+    o[k] = t;
   }
-  return c;
+  return o;
 }
 
 export class Room {
   constructor() {
     this.group = new THREE.Group();
-    this.spawnAnchors = [];
-    this.batteryCells = [];
-    this._t = 0;
+    this.pickupSpots = [];
     this._build();
   }
 
@@ -40,7 +38,7 @@ export class Room {
     const t = tiled(maps, rx, ry);
     return new THREE.MeshStandardMaterial({
       map: t.map, normalMap: t.normalMap, roughnessMap: t.roughnessMap,
-      metalness: 0.0, roughness: 1.0, normalScale: new THREE.Vector2(1.4, 1.4),
+      metalness: 0, roughness: 1, normalScale: new THREE.Vector2(1.4, 1.4),
       color: 0x5a5f68, ...extra,
     });
   }
@@ -52,200 +50,245 @@ export class Room {
 
     const floorMat = this._mat(tex.concrete, 3, 3, { color: 0x50545c });
     const ceilMat = this._mat(tex.concrete, 3, 3, { color: 0x3c3f46 });
-    const wallMat = this._mat(tex.metal, 3, 2.4, { color: 0x5c616a, metalness: 0.5, roughness: 0.65 });
-    const metal = this._mat(tex.metal, 2, 2, { color: 0x5b5f66, metalness: 0.6, roughness: 0.55 });
+    const wallMat = this._mat(tex.metal, 3, 2.4, { color: 0x5c616a, metalness: 0.5, roughness: 0.66 });
+    const metal = this._mat(tex.metal, 2, 2, { color: 0x5f646c, metalness: 0.6, roughness: 0.55 });
     const rust = this._mat(tex.rust, 1, 1, { color: 0x7a4f30, metalness: 0.25, roughness: 0.95 });
-    const dark = new THREE.MeshStandardMaterial({ color: 0x040507, roughness: 1, metalness: 0, side: THREE.BackSide });
-    this._metal = metal; this._rust = rust; this._dark = dark;
+    const voidMat = new THREE.MeshStandardMaterial({ color: 0x030406, roughness: 1, side: THREE.BackSide });
+    this.metal = metal; this.rust = rust; this.voidMat = voidMat;
 
-    const plane = (pw, ph, mat) => new THREE.Mesh(new THREE.PlaneGeometry(pw, ph), mat);
+    const plane = (pw, ph, m) => new THREE.Mesh(new THREE.PlaneGeometry(pw, ph), m);
 
-    // floor + ceiling
     const floor = plane(CONFIG.room.W, CONFIG.room.D, floorMat);
     floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; g.add(floor);
     const ceil = plane(CONFIG.room.W, CONFIG.room.D, ceilMat);
     ceil.rotation.x = Math.PI / 2; ceil.position.y = h; ceil.receiveShadow = true; g.add(ceil);
+    // Back wall: never seen (no rear screen) — minimal, just to catch shadows.
+    const back = plane(CONFIG.room.W, h, wallMat);
+    back.position.set(0, h / 2, d); back.rotation.y = Math.PI; back.receiveShadow = true; g.add(back);
+    const left = plane(CONFIG.room.D, h, wallMat);
+    left.position.set(-w, h / 2, 0); left.rotation.y = Math.PI / 2; left.receiveShadow = true; g.add(left);
+    const right = plane(CONFIG.room.D, h, wallMat);
+    right.position.set(w, h / 2, 0); right.rotation.y = -Math.PI / 2; right.receiveShadow = true; g.add(right);
 
-    // side + back walls
-    const back = plane(CONFIG.room.W, h, wallMat); back.position.set(0, h / 2, d); back.rotation.y = Math.PI; back.receiveShadow = true; g.add(back);
-    const left = plane(CONFIG.room.D, h, wallMat); left.position.set(-w, h / 2, 0); left.rotation.y = Math.PI / 2; left.receiveShadow = true; g.add(left);
-    const right = plane(CONFIG.room.D, h, wallMat); right.position.set(w, h / 2, 0); right.rotation.y = -Math.PI / 2; right.receiveShadow = true; g.add(right);
-
-    // ---- FRONT wall built around a central CORRIDOR opening -----------------
-    const opW = 1.3, opH = 2.15;              // corridor opening
-    const sideW = (CONFIG.room.W - opW) / 2;  // 0.85 each side
+    // ---- FRONT wall built around the corridor opening ----------------------
+    const opW = 1.30, opH = 2.15, sideW = (CONFIG.room.W - opW) / 2;
     const fl = plane(sideW, h, wallMat); fl.position.set(-(opW / 2 + sideW / 2), h / 2, -d); fl.receiveShadow = true; g.add(fl);
     const fr = plane(sideW, h, wallMat); fr.position.set(opW / 2 + sideW / 2, h / 2, -d); fr.receiveShadow = true; g.add(fr);
-    const ftop = plane(opW, h - opH, wallMat); ftop.position.set(0, opH + (h - opH) / 2, -d); ftop.receiveShadow = true; g.add(ftop);
-    this._corridor(new V3(0, 0, -d), opW, opH, metal, dark);
+    const ft = plane(opW, h - opH, wallMat); ft.position.set(0, opH + (h - opH) / 2, -d); ft.receiveShadow = true; g.add(ft);
 
-    // ---- LEFT door ----------------------------------------------------------
-    this._doorway(new V3(-w, 0, 0.35), Math.PI / 2, metal, rust, dark);
-    // ---- RIGHT smashed window ----------------------------------------------
-    this._window(new V3(w, 1.2, -0.15), -Math.PI / 2, metal, dark);
-    // ---- FRONT-low vent (animated) -----------------------------------------
-    this._vent(new V3(-0.9, 0.6, -d + 0.001), 0, metal, dark);
-    // ---- FLOOR hatch --------------------------------------------------------
-    this._hatch(new V3(0.55, 0.001, 0.45), metal, dark);
-
-    this._props(metal, rust);
+    this._corridor(new V3(0, 0, -d), opW, opH);
+    this._door(new V3(-w, 0, 0.35), Math.PI / 2);
+    this._window(new V3(w, 1.20, -0.15), -Math.PI / 2);
+    this._vent(new V3(-0.90, 0.60, -d + 0.002), 0);
+    this._hatch(new V3(0.55, 0.002, 0.45));
+    this._clock(new V3(0, 2.28, -d + 0.06));
+    this._props();
     this._lights();
-    this._batteries(metal);
 
-    // ---- Spawn anchors (pan matched to the physical strip) ------------------
-    this.spawnAnchors = [
-      { name: 'corridor', pos: new V3(0, 0, -d + 0.15),   face: new V3(0, 0, 1),  pan: 0.0,  hint: 'corridor' },
-      { name: 'door',     pos: new V3(-w + 0.34, 0, 0.35), face: new V3(1, 0, -0.1), pan: -0.95, hint: 'door' },
-      { name: 'window',   pos: new V3(w - 0.34, 1.1, -0.15), face: new V3(-1, 0, 0.1), pan: 0.95, hint: 'window' },
-      { name: 'vent',     pos: new V3(-0.9, 0.42, -d + 0.28), face: new V3(0, 0.15, 1), pan: -0.35, hint: 'vent' },
-      { name: 'hatch',    pos: new V3(0.55, 0.02, 0.45),  face: new V3(0, 1, 0),  pan: 0.3,  hint: 'hatch' },
-      { name: 'corner_l', pos: new V3(-w + 0.4, 0, -d + 0.45), face: new V3(1, 0, 1), pan: -0.6, hint: 'corner' },
+    // ---- shadow pockets S1..S6: the only legal lurking spots -------------
+    this.shadowSpots = [
+      new V3(-1.30, 0, -1.30), new V3(1.30, 0, -1.30), new V3(0, 0, -1.45),
+      new V3(-1.28, 0, -0.85), new V3(1.25, 0, 1.00), new V3(-0.50, 0, 1.05),
     ];
-    for (const a of this.spawnAnchors) a.face.normalize();
+    // ---- battery pickup positions (on ledges / in the pockets) -----------
+    this.pickupSpots = [
+      { pos: new V3(-1.34, 0.95, -0.85), pan: -0.85 },   // shelf, left wall
+      { pos: new V3(-1.30, 0.06, -1.28), pan: -0.7 },    // floor, S1
+      { pos: new V3(1.30, 0.06, -1.26), pan: 0.7 },      // floor, S2
+      { pos: new V3(1.32, 0.70, 0.95), pan: 0.85 },      // on the crates
+      { pos: new V3(-0.50, 0.83, 1.05), pan: -0.3 },     // on the desk
+      { pos: new V3(0.30, 0.06, -1.40), pan: 0.15 },     // floor, corridor mouth
+    ];
   }
 
-  // A dark hallway box behind the front opening, with side-door insets + red exit glow.
-  _corridor(pos, opW, opH, metal, dark) {
+  _corridor(pos, opW, opH) {
     const grp = new THREE.Group(); grp.position.copy(pos); this.group.add(grp);
-    const L = 3.2;                                  // corridor length into -Z
-    const tube = new THREE.Mesh(new THREE.BoxGeometry(opW, opH, L), dark);
+    const L = 3.2;
+    const tube = new THREE.Mesh(new THREE.BoxGeometry(opW, opH, L), this.voidMat);
     tube.position.set(0, opH / 2, -L / 2); tube.receiveShadow = true; grp.add(tube);
-    // threshold frame
-    const fr = (gx, gy, gz, sx, sy, sz) => { const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), metal); m.position.set(gx, gy, gz); m.castShadow = m.receiveShadow = true; grp.add(m); };
-    fr(-opW / 2, opH / 2, 0, 0.08, opH, 0.16); fr(opW / 2, opH / 2, 0, 0.08, opH, 0.16); fr(0, opH, 0, opW, 0.1, 0.16);
-    // receding side doors (dark insets)
-    for (const z of [-1.1, -2.2]) for (const sx of [-1, 1]) {
-      const dr = new THREE.Mesh(new THREE.PlaneGeometry(0.55, 1.5), new THREE.MeshStandardMaterial({ color: 0x0a0b0e, roughness: 1 }));
-      dr.position.set(sx * (opW / 2 - 0.01), 0.85, z); dr.rotation.y = sx * Math.PI / 2; grp.add(dr);
+    const bar = (x, y, z, sx, sy, sz) => { const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), this.metal); m.position.set(x, y, z); m.castShadow = m.receiveShadow = true; grp.add(m); };
+    bar(-opW / 2, opH / 2, 0, 0.09, opH, 0.17); bar(opW / 2, opH / 2, 0, 0.09, opH, 0.17); bar(0, opH, 0, opW + 0.1, 0.11, 0.17);
+    // side doors down the hall: the plant continues
+    for (const z of [-1.15, -2.30]) for (const sx of [-1, 1]) {
+      const dr = new THREE.Mesh(new THREE.PlaneGeometry(0.58, 1.55), new THREE.MeshStandardMaterial({ color: 0x0b0c10, roughness: 0.95 }));
+      dr.position.set(sx * (opW / 2 - 0.012), 0.86, z); dr.rotation.y = sx * Math.PI / 2; grp.add(dr);
+      const fr2 = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.6, 0.05), this.metal);
+      fr2.position.set(sx * (opW / 2 - 0.03), 0.88, z + 0.31); grp.add(fr2);
     }
-    // faint red exit glow at the far end (unlit, so it reads in the dark)
-    const glow = new THREE.Mesh(new THREE.PlaneGeometry(opW * 0.7, opH * 0.6),
-      new THREE.MeshBasicMaterial({ color: 0x330404, toneMapped: false }));
-    glow.position.set(0, opH * 0.5, -L + 0.02); grp.add(glow);
-    const exit = new THREE.PointLight(0x661010, 1.4, 3.2, 2); exit.position.set(0, 1.1, -L + 0.3); grp.add(exit);
+    // red exit backlight at the far end -> silhouettes
+    const glow = new THREE.Mesh(new THREE.PlaneGeometry(opW * 0.8, opH * 0.62),
+      new THREE.MeshBasicMaterial({ color: 0x3a0606, toneMapped: false }));
+    glow.position.set(0, opH * 0.48, -L + 0.03); grp.add(glow);
+    const exit = new THREE.PointLight(0x771212, 1.6, 3.6, 2);
+    exit.position.set(0, 1.15, -L + 0.35); grp.add(exit);
+    this.corridor = grp;
   }
 
-  _doorway(pos, ry, metal, rust, dark) {
+  _door(pos, ry) {
     const grp = new THREE.Group(); grp.position.copy(pos); grp.rotation.y = ry; this.group.add(grp);
-    const recess = new THREE.Mesh(new THREE.BoxGeometry(1.02, 2.05, 1.0), dark);
-    recess.position.set(0, 1.02, -0.55); recess.receiveShadow = true; grp.add(recess);
-    const jamb = (x) => { const m = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.12, 0.16), metal); m.position.set(x, 1.06, 0); m.castShadow = m.receiveShadow = true; grp.add(m); };
-    jamb(-0.54); jamb(0.54);
-    const lintel = new THREE.Mesh(new THREE.BoxGeometry(1.2, 0.14, 0.16), metal); lintel.position.set(0, 2.12, 0); lintel.castShadow = true; grp.add(lintel);
-    const door = new THREE.Mesh(new THREE.BoxGeometry(0.92, 2.02, 0.06), rust);
-    door.geometry.translate(-0.46, 0, 0);          // hinge on the left edge
-    door.position.set(-0.46, 1.02, -0.04); door.rotation.y = -0.55; door.castShadow = door.receiveShadow = true; grp.add(door);
-    this.door = door;
+    const recess = new THREE.Mesh(new THREE.BoxGeometry(1.06, 2.1, 1.0), this.voidMat);
+    recess.position.set(0, 1.05, -0.55); recess.receiveShadow = true; grp.add(recess);
+    const jamb = (x) => { const m = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.14, 0.17), this.metal); m.position.set(x, 1.07, 0); m.castShadow = m.receiveShadow = true; grp.add(m); };
+    jamb(-0.56); jamb(0.56);
+    const lintel = new THREE.Mesh(new THREE.BoxGeometry(1.24, 0.14, 0.17), this.metal);
+    lintel.position.set(0, 2.14, 0); lintel.castShadow = true; grp.add(lintel);
+    // hinge on the left edge so the gap (the "slit") opens on the right
+    const pivot = new THREE.Group(); pivot.position.set(-0.52, 1.02, -0.05); grp.add(pivot);
+    const leaf = new THREE.Mesh(new THREE.BoxGeometry(1.02, 2.02, 0.06), this.rust);
+    leaf.geometry.translate(0.51, 0, 0);
+    leaf.castShadow = leaf.receiveShadow = true; pivot.add(leaf);
+    const handle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.14), this.metal);
+    handle.position.set(0.9, 0.02, 0.08); pivot.add(handle);
+    this.door = { pivot, base: -0.56, open: 0, target: 0 };   // -32° at rest
+    pivot.rotation.y = this.door.base;
   }
 
-  _window(pos, ry, metal, dark) {
+  _window(pos, ry) {
     const grp = new THREE.Group(); grp.position.copy(pos); grp.rotation.y = ry; this.group.add(grp);
-    const frame = new THREE.Mesh(new THREE.BoxGeometry(1.5, 1.15, 0.12), metal); frame.castShadow = frame.receiveShadow = true; grp.add(frame);
-    const voidBox = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.95, 0.8), dark); voidBox.position.set(0, 0, -0.42); grp.add(voidBox);
-    const sill = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.08, 0.28), metal); sill.position.set(0, -0.5, 0.12); sill.castShadow = true; grp.add(sill);
-    // shattered glass shards around the edges
-    const shardMat = new THREE.MeshPhysicalMaterial({ color: 0x0c1013, roughness: 0.25, metalness: 0, transmission: 0.6, transparent: true, opacity: 0.5, ior: 1.4 });
-    for (let i = 0; i < 8; i++) {
-      const s = new THREE.Mesh(new THREE.PlaneGeometry(0.18 + Math.random() * 0.2, 0.18 + Math.random() * 0.2), shardMat);
-      const edge = i % 4; s.position.set((edge === 0 ? -0.55 : edge === 1 ? 0.55 : (Math.random() - 0.5)), (edge === 2 ? -0.4 : edge === 3 ? 0.4 : (Math.random() - 0.5)) * 0.9, 0.05);
-      s.rotation.z = Math.random() * 0.6 - 0.3; grp.add(s);
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(1.52, 1.16, 0.12), this.metal);
+    frame.castShadow = frame.receiveShadow = true; grp.add(frame);
+    const hole = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.95, 0.85), this.voidMat);
+    hole.position.set(0, 0, -0.45); grp.add(hole);
+    const sill = new THREE.Mesh(new THREE.BoxGeometry(1.44, 0.09, 0.3), this.metal);
+    sill.position.set(0, -0.58, 0.11); sill.castShadow = sill.receiveShadow = true; grp.add(sill);
+    // shards still in the frame
+    const shard = new THREE.MeshPhysicalMaterial({ color: 0x0c1013, roughness: 0.22, metalness: 0, transmission: 0.55, transparent: true, opacity: 0.45, ior: 1.4 });
+    for (let i = 0; i < 9; i++) {
+      const s = new THREE.Mesh(new THREE.PlaneGeometry(0.16 + Math.random() * 0.22, 0.16 + Math.random() * 0.24), shard);
+      const e = i % 4;
+      s.position.set(e === 0 ? -0.56 : e === 1 ? 0.56 : (Math.random() - 0.5) * 0.9,
+                     e === 2 ? -0.4 : e === 3 ? 0.42 : (Math.random() - 0.5) * 0.7, 0.06);
+      s.rotation.z = (Math.random() - 0.5) * 0.7; grp.add(s);
     }
+    this.window = grp;
   }
 
-  _vent(pos, ry, metal, dark) {
+  _vent(pos, ry) {
     const grp = new THREE.Group(); grp.position.copy(pos); grp.rotation.y = ry; this.group.add(grp);
-    const frame = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.68, 0.08), metal); frame.castShadow = frame.receiveShadow = true; grp.add(frame);
-    const voidBox = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.54, 0.8), dark); voidBox.position.set(0, 0, -0.42); grp.add(voidBox);
-    // hinged cover with louvers, opens by rotating about its top edge
-    const cover = new THREE.Group(); cover.position.set(0, 0.3, 0.05); grp.add(cover);
-    for (let i = 0; i < 6; i++) { const s = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.07, 0.03), metal); s.position.set(0, -0.06 - i * 0.09, 0); s.castShadow = true; cover.add(s); }
-    const coverPlate = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.6, 0.015), metal); coverPlate.position.set(0, -0.3, -0.02); cover.add(coverPlate);
-    this.vent = { group: grp, cover, open: 0, target: 0 };
+    const frame = new THREE.Mesh(new THREE.BoxGeometry(1.02, 0.7, 0.08), this.metal);
+    frame.castShadow = frame.receiveShadow = true; grp.add(frame);
+    const duct = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.56, 0.9), this.voidMat);
+    duct.position.set(0, 0, -0.47); grp.add(duct);
+    const cover = new THREE.Group(); cover.position.set(0, 0.31, 0.05); grp.add(cover);
+    for (let i = 0; i < 6; i++) { const s = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.07, 0.03), this.metal); s.position.set(0, -0.07 - i * 0.09, 0); s.castShadow = true; cover.add(s); }
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.6, 0.014), this.metal);
+    plate.position.set(0, -0.3, -0.02); cover.add(plate);
+    this.vent = { cover, open: 0, target: 0 };
   }
 
-  _hatch(pos, metal, dark) {
+  _hatch(pos) {
     const grp = new THREE.Group(); grp.position.copy(pos); this.group.add(grp);
-    const pit = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.6, 0.78), dark); pit.position.set(0, -0.3, 0); grp.add(pit);
-    const lid = new THREE.Group(); grp.add(lid);
-    // grate = crossing bars
-    for (let i = -2; i <= 2; i++) { const b = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.03, 0.05), metal); b.position.set(0, 0.02, i * 0.16); lid.add(b); const c = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.03, 0.8), metal); c.position.set(i * 0.16, 0.02, 0); lid.add(c); }
-    lid.children.forEach((m) => { m.castShadow = true; });
-    lid.geometry = null;
-    this.hatch = { group: grp, lid, open: 0, target: 0 };
+    const pit = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.62, 0.8), this.voidMat);
+    pit.position.set(0, -0.31, 0); grp.add(pit);
+    const lip = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.03, 0.92), this.metal);
+    lip.position.set(0, 0.005, 0); lip.receiveShadow = true; grp.add(lip);
+    const lid = new THREE.Group(); lid.position.set(0, 0.02, -0.4); grp.add(lid);
+    for (let i = -2; i <= 2; i++) {
+      const b = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.03, 0.05), this.metal); b.position.set(0, 0, 0.4 + i * 0.16); b.castShadow = true; lid.add(b);
+      const c = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.03, 0.78), this.metal); c.position.set(i * 0.16, 0, 0.4); c.castShadow = true; lid.add(c);
+    }
+    this.hatch = { lid, open: 0, target: 0 };
   }
 
-  _props(metal, rust) {
-    const w = CONFIG.room.W / 2, d = CONFIG.room.D / 2, h = CONFIG.room.H;
-    // ceiling pipes + cables
-    const pipeGeo = new THREE.CylinderGeometry(0.05, 0.05, CONFIG.room.D, 10);
-    const pipes = new THREE.InstancedMesh(pipeGeo, rust, 3); pipes.castShadow = true;
-    const m = new THREE.Matrix4(); const q = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0));
-    [-1.15, 1.05, 1.25].forEach((x, i) => { m.compose(new V3(x, h - 0.13, 0), q, new V3(1, 1, 1)); pipes.setMatrixAt(i, m); });
-    pipes.instanceMatrix.needsUpdate = true; this.group.add(pipes);
-    // hanging cables (thin drooping cylinders)
-    for (let i = 0; i < 3; i++) { const cbl = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.5, 6), metal); cbl.position.set(-0.3 + i * 0.4, h - 0.28, 0.9); cbl.rotation.z = 0.2 - i * 0.1; this.group.add(cbl); }
+  _clock(pos) {
+    const grp = new THREE.Group(); grp.position.copy(pos); this.group.add(grp);
+    const cv = document.createElement('canvas'); cv.width = cv.height = 256;
+    const x = cv.getContext('2d');
+    x.fillStyle = '#d8d2c4'; x.beginPath(); x.arc(128, 128, 124, 0, 7); x.fill();
+    x.strokeStyle = '#15120f'; x.lineWidth = 6; x.stroke();
+    x.fillStyle = '#15120f'; x.font = 'bold 30px ' + CONFIG.fonts.stencil;
+    x.textAlign = 'center'; x.textBaseline = 'middle';
+    for (let i = 1; i <= 12; i++) {
+      const a = (i / 12) * Math.PI * 2 - Math.PI / 2;
+      x.beginPath(); x.arc(128 + Math.cos(a) * 100, 128 + Math.sin(a) * 100, i % 3 === 0 ? 7 : 4, 0, 7); x.fill();
+    }
+    // grime
+    x.fillStyle = 'rgba(60,50,35,0.28)'; x.beginPath(); x.arc(90, 160, 55, 0, 7); x.fill();
+    const tx = new THREE.CanvasTexture(cv); tx.colorSpace = THREE.SRGBColorSpace;
+    const face = new THREE.Mesh(new THREE.CircleGeometry(0.17, 32), new THREE.MeshStandardMaterial({ map: tx, roughness: 0.7 }));
+    face.position.z = 0.035; grp.add(face);
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.175, 0.016, 8, 32), this.metal); rim.position.z = 0.035; grp.add(rim);
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.175, 0.175, 0.06, 24), this.metal);
+    body.rotation.x = Math.PI / 2; grp.add(body);
+    const mk = (len, wid, col) => { const m = new THREE.Mesh(new THREE.BoxGeometry(wid, len, 0.008), new THREE.MeshStandardMaterial({ color: col, roughness: 0.5 })); m.geometry.translate(0, len / 2, 0); m.position.z = 0.045; grp.add(m); return m; };
+    this.clock = { grp, hour: mk(0.085, 0.017, 0x14110e), minute: mk(0.135, 0.011, 0x14110e) };
+    this.setClock(0);
+  }
 
-    // crates + a desk with a dead monitor
-    const crates = new THREE.InstancedMesh(new THREE.BoxGeometry(0.55, 0.55, 0.55), rust, 4); crates.castShadow = crates.receiveShadow = true;
-    [[w - 0.4, 0.28, d - 0.5, 0.3], [w - 0.45, 0.83, d - 0.55, 0.5], [-w + 0.5, 0.28, d - 0.4, -0.2], [w - 0.9, 0.28, d - 0.45, 0.1]]
-      .forEach(([x, y, z, ry], i) => { m.compose(new V3(x, y, z), new THREE.Quaternion().setFromEuler(new THREE.Euler(0, ry, 0)), new V3(1, 1, 1)); crates.setMatrixAt(i, m); });
+  _props() {
+    const w = CONFIG.room.W / 2, d = CONFIG.room.D / 2, h = CONFIG.room.H;
+    const m = new THREE.Matrix4(), q = new THREE.Quaternion();
+
+    // ceiling pipes (they slice the beam into moving shadow bars)
+    const pipes = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.05, 0.05, CONFIG.room.D, 10), this.rust, 3);
+    pipes.castShadow = true;
+    [-1.15, 1.05, 1.25].forEach((x, i) => { m.compose(new V3(x, h - 0.13, 0), q.setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0)), new V3(1, 1, 1)); pipes.setMatrixAt(i, m); });
+    pipes.instanceMatrix.needsUpdate = true; this.group.add(pipes);
+    for (let i = 0; i < 3; i++) { const c = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.52, 6), this.metal); c.position.set(-0.3 + i * 0.42, h - 0.28, 0.9); c.rotation.z = 0.22 - i * 0.11; c.castShadow = true; this.group.add(c); }
+
+    // left-wall shelving unit (breaks the wall, makes shadow S4)
+    const shelf = new THREE.Group(); shelf.position.set(-1.34, 0, -0.85); this.group.add(shelf);
+    for (let i = 0; i < 3; i++) { const s = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.03, 0.9), this.metal); s.position.set(0, 0.35 + i * 0.3, 0); s.castShadow = s.receiveShadow = true; shelf.add(s); }
+    for (const sz of [-0.43, 0.43]) { const p = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.98, 0.04), this.metal); p.position.set(0, 0.49, sz); p.castShadow = true; shelf.add(p); }
+
+    // crates (right-back) and desk (left-back)
+    const crates = new THREE.InstancedMesh(new THREE.BoxGeometry(0.55, 0.55, 0.55), this.rust, 4);
+    crates.castShadow = crates.receiveShadow = true;
+    [[w - 0.4, 0.28, d - 0.5, 0.3], [w - 0.44, 0.83, d - 0.55, 0.5], [w - 0.92, 0.28, d - 0.42, 0.1], [-w + 0.52, 0.28, d - 0.42, -0.2]]
+      .forEach(([x, y, z, ry], i) => { m.compose(new V3(x, y, z), q.setFromEuler(new THREE.Euler(0, ry, 0)), new V3(1, 1, 1)); crates.setMatrixAt(i, m); });
     crates.instanceMatrix.needsUpdate = true; this.group.add(crates);
 
-    const desk = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.05, 0.5), metal); desk.position.set(-0.5, 0.78, d - 0.32); desk.castShadow = true; this.group.add(desk);
-    const monitor = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.3, 0.05), new THREE.MeshStandardMaterial({ color: 0x0a0c10, roughness: 0.35 }));
-    monitor.position.set(-0.5, 1.0, d - 0.42); monitor.castShadow = true; this.group.add(monitor);
+    const desk = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.05, 0.5), this.metal);
+    desk.position.set(-0.5, 0.78, d - 0.32); desk.castShadow = desk.receiveShadow = true; this.group.add(desk);
+    for (const [lx, lz] of [[-0.95, 1.02], [-0.05, 1.02], [-0.95, 1.4], [-0.05, 1.4]]) {
+      const l = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.78, 0.05), this.metal); l.position.set(lx, 0.39, lz); l.castShadow = true; this.group.add(l);
+    }
 
-    // hazard stripe under the corridor (facility read), unlit so it's faintly visible
-    const stripe = new THREE.Mesh(new THREE.PlaneGeometry(1.3, 0.12), new THREE.MeshBasicMaterial({ color: 0x2a2410, toneMapped: false }));
-    stripe.rotation.x = -Math.PI / 2; stripe.position.set(0, 0.006, -d + 0.35); this.group.add(stripe);
+    // hazard stripe on the floor at the corridor threshold (scale + reading)
+    const stripe = new THREE.Mesh(new THREE.PlaneGeometry(1.34, 0.13), new THREE.MeshBasicMaterial({ color: 0x2b2410, toneMapped: false }));
+    stripe.rotation.x = -Math.PI / 2; stripe.position.set(0, 0.006, -1.15); this.group.add(stripe);
+
+    // damp patches: low roughness so they throw the flashlight back at you
+    const wet = new THREE.MeshStandardMaterial({ color: 0x0e1014, roughness: 0.14, metalness: 0.05 });
+    for (const [px, pz, r] of [[-0.35, -0.9, 0.28], [0.75, -0.55, 0.2], [-0.9, 0.35, 0.17]]) {
+      const p = new THREE.Mesh(new THREE.CircleGeometry(r, 18), wet);
+      p.rotation.x = -Math.PI / 2; p.position.set(px, 0.004, pz); this.group.add(p);
+    }
   }
 
   _lights() {
     const h = CONFIG.room.H;
-    // Stuttering fluorescent tube over the room (main flicker reveal)
-    const tube = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.06, 0.1), new THREE.MeshBasicMaterial({ color: 0x0a0d12, toneMapped: false }));
+    const tube = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.06, 0.1), new THREE.MeshBasicMaterial({ color: 0x0a0d12, toneMapped: false }));
     tube.position.set(0, h - 0.05, 0.4); this.group.add(tube);
     const fluo = new THREE.PointLight(0xbcd0ea, 0, 9, 2); fluo.position.set(0, h - 0.12, 0.4); this.group.add(fluo);
-    // Steady dim red emergency wall lamp (keeps the space barely readable)
+
     const dome = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 10, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x661414, toneMapped: false }));
     dome.position.set(CONFIG.room.W / 2 - 0.02, 2.15, 1.2); dome.rotation.z = Math.PI / 2; this.group.add(dome);
     const emg = new THREE.PointLight(0x8a221a, 3.4, 6.5, 2); emg.position.set(CONFIG.room.W / 2 - 0.2, 2.1, 1.2); this.group.add(emg);
+
     this.lights = { fluo, fluoMesh: tube, emergency: emg };
   }
 
-  _batteries(metal) {
-    const w = CONFIG.room.W / 2;
-    // pos = the surface point you aim the flashlight at to recharge; pan for audio.
-    const spots = [
-      { pos: new V3(-w + 0.06, 1.25, 0.95), ry: Math.PI / 2, pan: -0.85 },
-      { pos: new V3(w - 0.06, 1.45, 0.5), ry: -Math.PI / 2, pan: 0.85 },
-      { pos: new V3(-1.05, 1.5, -CONFIG.room.D / 2 + 0.06), ry: 0, pan: -0.3 },
-    ];
-    for (const s of spots) {
-      const grp = new THREE.Group(); grp.position.copy(s.pos); grp.rotation.y = s.ry; this.group.add(grp);
-      const housing = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.34, 0.1), metal); housing.castShadow = true; grp.add(housing);
-      // three green indicator pips (drain visually as it's used) — unlit so visible in dark
-      const glowMat = new THREE.MeshBasicMaterial({ color: 0x27ff5a, toneMapped: false });
-      const pips = [];
-      for (let i = 0; i < 3; i++) { const p = new THREE.Mesh(new THREE.PlaneGeometry(0.12, 0.05), glowMat.clone()); p.position.set(0, 0.09 - i * 0.08, 0.055); grp.add(p); pips.push(p); }
-      const halo = new THREE.PointLight(0x1aff55, 0.9, 1.4, 2); halo.position.set(0, 0, 0.2); grp.add(halo);
-      this.batteryCells.push({ group: grp, pos: s.pos.clone(), pan: s.pan, pips, halo, glowMat, charge: 1, active: true, cooldown: 0 });
-    }
+  // ---- animated state ----------------------------------------------------
+  setVent(v) { if (this.vent) this.vent.target = v; }
+  setHatch(v) { if (this.hatch) this.hatch.target = v; }
+  setDoor(v) { if (this.door) this.door.target = v; }
+
+  /** frac 0..1 across the night -> clock hands (00:00 -> 06:00). */
+  setClock(frac) {
+    if (!this.clock) return;
+    const hours = CONFIG.game.clockFrom + frac * (CONFIG.game.clockTo - CONFIG.game.clockFrom);
+    this.clock.hour.rotation.z = -(hours / 12) * Math.PI * 2;
+    this.clock.minute.rotation.z = -((hours % 1)) * Math.PI * 2;
   }
 
-  // Called each frame from main: animates vent/hatch/door and battery-cell glow.
-  update(dt, t) {
-    this._t = t;
-    if (this.vent) { this.vent.open += (this.vent.target - this.vent.open) * Math.min(1, dt * 3); this.vent.cover.rotation.x = -this.vent.open * 1.5; }
-    if (this.hatch) { this.hatch.open += (this.hatch.target - this.hatch.open) * Math.min(1, dt * 3); this.hatch.lid.rotation.x = -this.hatch.open * 1.2; this.hatch.lid.position.z = this.hatch.open * 0.35; }
-    for (const c of this.batteryCells) {
-      const on = c.active ? 1 : 0;
-      c.halo.intensity += (on * 0.9 - c.halo.intensity) * Math.min(1, dt * 5);
-      const lvl = c.active ? c.charge : 0;
-      c.pips.forEach((p, i) => { const litp = lvl > (i / 3) ? 1 : 0.06; p.material.color.setRGB(0.15 * litp, litp, 0.35 * litp); });
+  update(dt) {
+    const k = Math.min(1, dt * 3);
+    if (this.vent) { this.vent.open += (this.vent.target - this.vent.open) * k; this.vent.cover.rotation.x = -this.vent.open * 1.5; }
+    if (this.hatch) { this.hatch.open += (this.hatch.target - this.hatch.open) * k; this.hatch.lid.rotation.x = -this.hatch.open * 1.15; }
+    if (this.door) {
+      this.door.open += (this.door.target - this.door.open) * k * 0.7;
+      this.door.pivot.rotation.y = this.door.base - this.door.open * 0.75;
     }
   }
-
-  openVent(v = 1) { if (this.vent) this.vent.target = v; }
-  openHatch(v = 1) { if (this.hatch) this.hatch.target = v; }
 }

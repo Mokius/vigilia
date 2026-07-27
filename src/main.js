@@ -1,6 +1,9 @@
 // =============================================================================
-// main.js — Bootstrap & frame loop. Builds the renderer, CAVE rig, world,
-// flashlight, post-FX, audio, UI and the Game Manager, then drives the loop.
+// main.js — Bootstrap & frame loop.
+// Renders the 4 CAVE viewports DIRECTLY to the screen (SpotLight illumination is
+// only reliable there), then post-processes a copy of the framebuffer.
+// No DOM UI: the menu is the in-world CRT console, the timer is the wall clock,
+// the battery gauge is the beam itself.
 // =============================================================================
 
 import * as THREE from 'three';
@@ -12,8 +15,8 @@ import { Flashlight } from './world/flashlight.js';
 import { Input } from './input/input.js';
 import { EventBus } from './core/events.js';
 import { AudioBus } from './audio/audioBus.js';
-import { UI } from './ui/ui.js';
-import { Game } from './systems/game.js';
+import { CRTConsole } from './ui/crt.js';
+import { Game, GState } from './systems/game.js';
 
 const boot = document.getElementById('boot');
 const bar = document.getElementById('bootbar');
@@ -26,8 +29,6 @@ function makeRenderer(canvas) {
   r.shadowMap.enabled = true;
   r.shadowMap.type = THREE.PCFSoftShadowMap;
   r.shadowMap.autoUpdate = false;
-  // The scene is rendered directly to the screen (SpotLight illumination is
-  // reliable there on every driver); post runs on a copy of the framebuffer.
   r.toneMapping = THREE.ACESFilmicToneMapping;
   r.toneMappingExposure = CONFIG.render.exposure;
   r.outputColorSpace = THREE.SRGBColorSpace;
@@ -36,9 +37,8 @@ function makeRenderer(canvas) {
 
 function start() {
   const canvas = document.getElementById('app');
-  const usePost = CONFIG.render.post;
   const renderer = makeRenderer(canvas);
-  setBoot(0.25);
+  setBoot(0.2);
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x000000);
@@ -47,35 +47,32 @@ function start() {
 
   const rig = new CaveRig();
   const room = new Room(); scene.add(room.group);
-  setBoot(0.55);
+  setBoot(0.5);
   const flashlight = new Flashlight(scene);
   const input = new Input(canvas, rig);
-  const post = usePost ? new PostFX(renderer) : null;
-  setBoot(0.75);
-
+  const post = CONFIG.render.post ? new PostFX(renderer) : null;
   const bus = new EventBus();
   const audio = new AudioBus();
-  const ui = new UI();
+  const crt = new CRTConsole(scene, room);
   const eye = new THREE.Vector3().fromArray(CONFIG.room.eye);
+  setBoot(0.8);
 
-  // Custom flashlight reticle — the cursor is hidden, so this warm glow is the
-  // pointer in the menu / end screens (left→left, centre→centre, right→right)
-  // and previews the flashlight. It hides once pointer-lock takes over in play.
-  const reticle = document.createElement('div');
-  reticle.style.cssText = 'position:fixed;left:50%;top:50%;width:58px;height:58px;z-index:40;'
-    + 'pointer-events:none;transform:translate(-50%,-50%);opacity:0;transition:opacity .25s;mix-blend-mode:screen;'
-    + 'background:radial-gradient(circle,rgba(255,238,205,.85) 0%,rgba(255,224,175,.32) 26%,rgba(255,220,170,0) 60%);';
-  reticle.innerHTML = '<div style="position:absolute;left:50%;top:50%;width:6px;height:6px;margin:-3px 0 0 -3px;'
-    + 'border-radius:50%;background:#fff6e8;box-shadow:0 0 10px 3px rgba(255,236,205,.9);"></div>';
-  document.body.appendChild(reticle);
-
+  const soloSurface = new URLSearchParams(location.search).get('surface');
   const game = new Game({
-    scene, room, flashlight, eye, bus, audio, ui,
-    onPointerLock: () => { input.enabled = true; input.allowLock = true; if (!ui.surface && canvas.requestPointerLock) canvas.requestPointerLock(); },
+    scene, room, flashlight, eye, bus, audio, crt,
+    onPointerLock: () => { input.allowLock = true; if (!soloSurface && canvas.requestPointerLock) canvas.requestPointerLock(); },
     onPointerUnlock: () => { input.allowLock = false; if (document.exitPointerLock) document.exitPointerLock(); },
   });
   game.init();
   setBoot(1);
+
+  // Manual light discipline: turning the flashlight OFF is how you save power.
+  const toggle = () => { if (game.state === GState.PLAYING) flashlight.on = !flashlight.on; };
+  window.addEventListener('keydown', (e) => {
+    const k = e.key.toLowerCase();
+    if (k === 'f' || k === ' ') { e.preventDefault(); toggle(); }
+  });
+  window.addEventListener('contextmenu', (e) => { e.preventDefault(); toggle(); });
 
   window.addEventListener('resize', () => {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, CONFIG.render.maxPixelRatio));
@@ -83,41 +80,53 @@ function start() {
     if (post) post.setSize();
   });
 
-  // Stuttering fluorescent: mostly dark, sudden buzzing flashes that briefly
-  // reveal the room. Bursts of rapid flicker, then long darkness.
+  // A reticle so the beam is findable even before it hits anything. Drawn in
+  // world space as a faint dot at the aim point would need a raycast; instead we
+  // keep the flashlight itself as the cursor and only show a tiny glow when the
+  // pointer is unlocked (menus), matching the "no HUD" rule in play.
+  const reticle = document.createElement('div');
+  reticle.style.cssText = 'position:fixed;left:50%;top:50%;width:54px;height:54px;z-index:40;'
+    + 'pointer-events:none;transform:translate(-50%,-50%);opacity:0;transition:opacity .25s;mix-blend-mode:screen;'
+    + 'background:radial-gradient(circle,rgba(255,238,205,.75) 0%,rgba(255,224,175,.26) 28%,rgba(255,220,170,0) 62%)';
+  document.body.appendChild(reticle);
+
+  // Stuttering fluorescent: long darkness, sudden buzzing reveals.
   let fluoT = 0, fluoLevel = 0;
   function flicker(dt) {
     fluoT -= dt;
     if (fluoT <= 0) {
-      if (Math.random() < 0.5) { fluoLevel = 20 + Math.random() * 22; fluoT = 0.03 + Math.random() * 0.1; }
-      else { fluoLevel = 0; fluoT = 0.7 + Math.random() * 3.2; }
+      if (Math.random() < 0.5) { fluoLevel = 18 + Math.random() * 24; fluoT = 0.03 + Math.random() * 0.1; }
+      else { fluoLevel = 0; fluoT = 0.8 + Math.random() * 3.4; }
     }
     const L = room.lights;
-    if (L && L.fluo) { L.fluo.intensity += (fluoLevel - L.fluo.intensity) * Math.min(1, dt * 30); L.fluoMesh.material.color.setScalar(0.03 + Math.min(0.5, L.fluo.intensity * 0.22)); }
+    if (L && L.fluo) {
+      L.fluo.intensity += (fluoLevel - L.fluo.intensity) * Math.min(1, dt * 30);
+      L.fluoMesh.material.color.setScalar(0.03 + Math.min(0.5, L.fluo.intensity * 0.02));
+    }
   }
 
-  window.__vig = { renderer, scene, rig, room, flashlight, input, post, game, audio, bus, THREE };
+  window.__vig = { renderer, scene, rig, room, flashlight, input, post, game, audio, bus, crt, THREE };
 
   let last = performance.now();
   function loop(now) {
     const t = now / 1000;
     const dt = Math.min(0.05, (now - last) / 1000); last = now;
 
-    const dir = input.update();
-    flashlight.setAimDir(dir);
+    flashlight.setAimDir(input.update());
     flashlight.update(dt, t);
     flicker(dt);
-    game.update(dt);        // sets vent/hatch targets, battery logic
-    room.update(dt, t);     // animates vent/hatch/doors + battery-cell glow
+    game.update(dt);
+    game.tickScare(dt);
+    room.update(dt);
+    crt.update(dt);
 
-    // Reticle follows the pointer while not locked (menu / end); hidden in play.
     reticle.style.left = input.px + 'px';
     reticle.style.top = input.py + 'px';
-    reticle.style.opacity = (!input.locked && game.state !== 'scare') ? '1' : '0';
+    reticle.style.opacity = (!input.locked && game.state !== GState.SCARE) ? '1' : '0';
 
     renderer.shadowMap.needsUpdate = true;
-    rig.render(renderer, scene, null);          // 4 CAVE viewports → screen
-    if (post) post.process(t, game.scareFX);    // bloom/grain/vignette on the copy
+    rig.render(renderer, scene, null);
+    if (post) post.process(t, game.scareFX, game.shake);
 
     requestAnimationFrame(loop);
   }

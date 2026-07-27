@@ -1,28 +1,30 @@
 // =============================================================================
-// game.js — Game Manager / state machine, wiring the decoupled systems:
-//   MENU → PLAYING → (SCARE → END) | (survive → END win)
-// Adds: battery-recharge cells (aim the beam at a green wall cell to top up a
-// little), vent/hatch that open while a creature uses them, and a per-monster
-// jumpscare (distinct face + scream).
+// game.js — Game Manager. ONE verb runs the whole experience: point the
+// flashlight and hold. It banishes creatures, collects batteries and throws the
+// menu levers. There is no DOM UI and no HUD: the wall clock is the timer and
+// the beam itself is the battery gauge.
+//   MENU -> PLAYING -> (SCARE -> END) | (dawn -> END)
 // =============================================================================
 
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { EnemyManager } from '../ai/enemyManager.js';
-import { EnemyState } from '../ai/enemy.js';
-import { damp, randRange } from '../core/util.js';
+import { PickupField } from '../world/pickups.js';
+import { damp, clamp, mulberry32 } from '../core/util.js';
 
 export const GState = { MENU: 'menu', PLAYING: 'playing', SCARE: 'scare', END: 'end' };
-const ALIVE = (e) => e.state === EnemyState.LURK || e.state === EnemyState.ATTACK;
 
 export class Game {
-  constructor({ scene, room, flashlight, eye, bus, audio, ui, onPointerLock, onPointerUnlock }) {
-    Object.assign(this, { scene, room, flashlight, eye, bus, audio, ui, onPointerLock, onPointerUnlock });
+  constructor({ scene, room, flashlight, eye, bus, audio, crt, onPointerLock, onPointerUnlock }) {
+    Object.assign(this, { scene, room, flashlight, eye, bus, audio, crt, onPointerLock, onPointerUnlock });
     this.manager = new EnemyManager(scene, room, eye, bus);
+    this.pickups = new PickupField(scene, room);
     this.state = GState.MENU;
-    this.night = CONFIG.startNight;
-    this.timer = 0; this.scareFX = 0;
-    this._ventOpen = false; this._hatchOpen = false;
+    this.night = CONFIG.game.startNight;
+    this.timer = 0;
+    this.scareFX = 0;
+    this.shake = 0;
+    this._dwell = {};
     this._wire();
   }
 
@@ -30,81 +32,146 @@ export class Game {
     const a = this.audio;
     const sfx = { footstep: (p, m) => a.footstep(p, m), knock: (p, m) => a.knock(p, m), breath: (p, m) => a.breath(p, m), whisper: (p, m) => a.whisper(p, m), scrape: (p, m) => a.scrape(p, m) };
     this.bus.on('cue', ({ sound, pan, muffle }) => sfx[sound] && sfx[sound](pan, muffle));
-    this.bus.on('spawn', ({ pan }) => { if (Math.random() < 0.6) a.knock(pan, 0.6); });
-    this.bus.on('banish', ({ pan }) => { a.scrape(pan, 0.2); a.boom(pan); });
-    this.bus.on('charge', ({ pan }) => a.charge(pan));
-    this.bus.on('cellblip', ({ pan }) => a.blip(pan));
+    this.bus.on('spawn', ({ pan }) => { if (Math.random() < 0.55) a.knock(pan, 0.65); });
+    this.bus.on('banish', ({ pan }) => { a.scrape(pan, 0.25); a.boom(pan); });
   }
 
-  init() { this.ui.showMenu((n) => this.startNight(n)); this.ui.hideHud(); }
+  init() { this.crt.showMenu(); this.state = GState.MENU; }
 
+  // ------------------------------------------------------------------- night
   startNight(night) {
-    this.night = night;
+    this.night = clamp(night, 1, 5);
     this.audio.resume().catch(() => {});
     this.flashlight.battery = 100; this.flashlight.on = true;
     this.timer = CONFIG.game.nightSeconds;
-    this.manager.start(night);
-    for (const c of this.room.batteryCells) { c.active = true; c.charge = 1; c.cooldown = 0; c._dwell = 0; }
-    this.ui.hideMenu(); this.ui.hideEnd(); this.ui.showHud();
-    this.state = GState.PLAYING; this.scareFX = 0;
+    this.manager.start(this.night);
+    this.pickups.spawn(mulberry32((0xabcd ^ Math.imul(this.night, 48271)) >>> 0));
+    this.room.setClock(0);
+    this.crt.rollAway();
+    this.state = GState.PLAYING;
+    this._dwell = {};
     this.onPointerLock && this.onPointerLock();
   }
 
   update(dt) {
     this.scareFX = damp(this.scareFX, this.state === GState.SCARE ? 1 : 0, 6, dt);
+    this.shake = damp(this.shake, 0, 3.2, dt);
+
+    if (this.state === GState.MENU || this.state === GState.END) {
+      this._menuInteract(dt);
+      return;
+    }
     if (this.state !== GState.PLAYING) return;
 
     this.timer -= dt;
+    this.room.setClock(1 - clamp(this.timer / CONFIG.game.nightSeconds, 0, 1));
+
     const r = this.manager.update(dt, this.flashlight);
-    this.audio.setTension(r.tension); this.audio.updateHeartbeat(dt);
+    this.audio.setTension(r.tension);
+    this.audio.updateHeartbeat(dt);
     this.scareFX = Math.max(this.scareFX, r.tension * 0.16);
 
-    this._battery(dt);
-    this._openings();
+    for (const c of this.pickups.update(dt, this.flashlight)) {
+      this.flashlight.recharge(CONFIG.pickups.amount);
+      this.audio.charge(c.pan);
+    }
 
-    this.ui.setHud({ night: this.night, timeFrac: this.timer / CONFIG.game.nightSeconds, battery: this.flashlight.battery, tension: r.tension });
     if (r.scared) return this._onScare(r.scared);
     if (this.timer <= 0) return this._onWin();
   }
 
-  _battery(dt) {
-    const rc = CONFIG.flashlight.recharge;
-    for (const c of this.room.batteryCells) {
-      if (c.active) {
-        const lit = this.flashlight.litAmount(c.pos);
-        if (lit > rc.litThreshold) {
-          c._dwell = (c._dwell || 0) + dt * lit;
-          if (c._dwell >= rc.dwell) { this.flashlight.recharge(rc.amount); c.active = false; c.charge = 0; c._dwell = 0; c.cooldown = randRange(Math.random, ...rc.cellCooldown); this.bus.emit('charge', { pan: c.pan }); }
-        } else { c._dwell = Math.max(0, (c._dwell || 0) - dt); c.charge = Math.max(0.15, c._dwell / rc.dwell); }
-        c._blip = (c._blip || (0.5 + Math.random())) - dt;
-        if (c._blip <= 0) { c._blip = 1.6 + Math.random() * 1.6; this.bus.emit('cellblip', { pan: c.pan }); }
+  // --------------------------------------------------- diegetic menu levers
+  _menuInteract(dt) {
+    if (this.crt.isAway) return;
+    const D = CONFIG.interact;
+
+    // The lit cone is far wider than the gap between levers, so pick the ONE
+    // control closest to the beam axis. Everything else decays.
+    let target = null, bestAngle = Infinity;
+    for (const ctrl of this.crt.controls) {
+      const a = this.flashlight.aimAngle(this.crt.worldPosOf(ctrl));
+      if (a < CONFIG.interact.maxAngle && a < bestAngle) { bestAngle = a; target = ctrl; }
+    }
+
+    for (const ctrl of this.crt.controls) {
+      const k = ctrl.name;
+      if (ctrl === target && this.flashlight.on) {
+        this._dwell[k] = Math.min(D.dwell, (this._dwell[k] || 0) + dt);
       } else {
-        c.cooldown -= dt; if (c.cooldown <= 0) { c.active = true; c.charge = 1; }
+        this._dwell[k] = Math.max(0, (this._dwell[k] || 0) - dt * 1.6);
       }
     }
+
+    if (target && (this._dwell[target.name] || 0) >= D.dwell) {
+      this._dwell[target.name] = 0;
+      this.audio.blip(0);
+      if (target.name === 'start') {
+        const next = (this.state === GState.END && this._lastWin) ? Math.min(5, this.night + 1) : this.crt.night;
+        this.crt.setNight(next);
+        this.startNight(next);
+        return;
+      }
+      this.crt.setNight(target.night);
+    }
+    this.crt.setAim(target ? target.name : null, target ? (this._dwell[target.name] || 0) / D.dwell : 0);
   }
 
-  _openings() {
-    const anchors = new Set(this.manager.enemies.filter(ALIVE).map((e) => e.anchor.name));
-    const v = anchors.has('vent'), h = anchors.has('hatch');
-    if (v !== this._ventOpen) { this._ventOpen = v; this.room.openVent(v ? 1 : 0); if (v) this.audio.ductRattle(-0.35); }
-    if (h !== this._hatchOpen) { this._hatchOpen = h; this.room.openHatch(h ? 1 : 0); if (h) this.audio.ductRattle(0.3); }
-  }
-
+  // ------------------------------------------------------------------ scare
   _onScare(scared) {
     this.state = GState.SCARE;
-    this.manager.stop(); this.room.openVent(0); this.room.openHatch(0); this._ventOpen = this._hatchOpen = false;
-    this.audio.setTension(0); this.audio.scream(scared.type.scream);
+    this.shake = 1;
+    this.audio.setTension(0);
+    this.audio.scream(scared.type.scream);
     this.onPointerUnlock && this.onPointerUnlock();
-    this.ui.showScare(scared.type, () => { this.state = GState.END; this.ui.showEnd(false, this.night, (win) => this._retry(win)); });
+
+    // Bring the actual creature to the player's face, on whichever screen it
+    // came from, and let its own attack clip play. No 2D overlay anywhere.
+    const e = scared.enemy;
+    if (e && e.group) {
+      const dir = e.group.position.clone().sub(this.eye); dir.y = 0;
+      if (dir.lengthSq() < 1e-4) dir.set(0, 0, -1);
+      dir.normalize();
+      const p = this.eye.clone().addScaledVector(dir, 0.62);
+      p.y = Math.max(0, this.eye.y - (e.bodyHeight || 1.8) * 0.82);
+      e.group.position.copy(p);
+      e.group.lookAt(this.eye.x, e.group.position.y, this.eye.z);
+      e.group.scale.setScalar(1.12);
+      this._scareEnemy = e;
+    }
+    this._scareT = 0;
+  }
+
+  tickScare(dt) {
+    if (this.state !== GState.SCARE) return;
+    this._scareT += dt;
+    const e = this._scareEnemy;
+    if (e) {
+      e.animate(dt);
+      // lunge a few centimetres closer, twitching
+      const d = this.eye.clone().sub(e.group.position); d.y = 0;
+      if (d.length() > 0.42) e.group.position.addScaledVector(d.normalize(), dt * 0.35);
+      e.group.rotation.z = Math.sin(this._scareT * 47) * 0.05;
+      if (Math.random() < 0.2) this.shake = Math.max(this.shake, 0.75);
+    }
+    if (this._scareT > 1.7) {
+      const left = this.pickups.remaining;      // read BEFORE clearing the field
+      this.manager.stop(); this.pickups.clear();
+      this._scareEnemy = null;
+      this._lastWin = false;
+      this.state = GState.END;
+      this.crt.showResult(false, this.night, left);
+      this.crt.rollBack();
+    }
   }
 
   _onWin() {
     this.state = GState.END;
-    this.manager.stop(); this.audio.setTension(0); this.audio.boom(0);
+    this._lastWin = true;
+    this.audio.setTension(0); this.audio.boom(0);
+    const left = this.pickups.remaining;
+    this.manager.stop(); this.pickups.clear();
     this.onPointerUnlock && this.onPointerUnlock();
-    this.ui.showEnd(true, this.night, (win) => this._retry(win));
+    this.crt.showResult(true, this.night, left);
+    this.crt.rollBack();
   }
-
-  _retry(win) { this.startNight(win ? Math.min(5, this.night + 1) : this.night); }
 }

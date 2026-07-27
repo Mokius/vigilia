@@ -151,6 +151,17 @@ export class Flashlight {
 
   recharge(amt) { this.battery = clamp(this.battery + amt, 0, 100); }
 
+  /**
+   * Angle (radians) between the beam axis and a world point. The lit cone is
+   * deliberately wide (~23°), which is far too coarse to pick between small
+   * controls sitting side by side — so precise targeting uses this instead.
+   */
+  aimAngle(worldPos) {
+    const v = worldPos.clone().sub(this.eye);
+    if (v.lengthSq() < 1e-9) return 0;
+    return Math.acos(clamp(v.normalize().dot(this.dir), -1, 1));
+  }
+
   // Angle test used by the AI: is a world point currently lit by the beam?
   litAmount(worldPos) {
     const v = worldPos.clone().sub(this.eye);
