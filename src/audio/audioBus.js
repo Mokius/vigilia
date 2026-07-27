@@ -149,21 +149,60 @@ export class AudioBus {
     o.connect(bp); bp.connect(g); g.connect(head); o.start(t); o.stop(t + 0.6);
   }
 
-  // The jumpscare stinger. Loud, brief, ducks everything else.
-  scream() {
+  // The jumpscare stinger. Loud, brief, ducks everything else. `variant` gives
+  // each monster a distinct voice: shriek (high sawtooth), gurgle (low wet),
+  // whisperscream (breathy + shriek), roar (broadband distorted).
+  scream(variant = 'shriek') {
     if (!this.ready) return;
     const ctx = this.ctx, t = this._now();
     this.duck.gain.cancelScheduledValues(t);
     this.duck.gain.setValueAtTime(CONFIG.audio.duckOnScare, t);
-    this.duck.gain.setTargetAtTime(1, t + 1.3, 0.8);
-    // distortion
+    this.duck.gain.setTargetAtTime(1, t + 1.4, 0.8);
+    const V = {
+      shriek: { base: [520, 528, 790], drive: 3.5, sub: [150, 44], noise: 0.5, dur: 1.1 },
+      gurgle: { base: [90, 96, 140], drive: 6.0, sub: [120, 30], noise: 0.8, dur: 1.3 },
+      whisperscream: { base: [340, 351, 610], drive: 2.6, sub: [110, 40], noise: 1.0, dur: 1.2 },
+      roar: { base: [150, 158, 232, 300], drive: 5.5, sub: [140, 34], noise: 0.7, dur: 1.35 },
+    }[variant] || { base: [180, 184, 271], drive: 3.5, sub: [130, 38], noise: 0.6, dur: 1.2 };
+
     const shaper = ctx.createWaveShaper(); const cur = new Float32Array(1024);
-    for (let i = 0; i < 1024; i++) { const x = i / 512 - 1; cur[i] = Math.tanh(x * 3.5); }
+    for (let i = 0; i < 1024; i++) { const x = i / 512 - 1; cur[i] = Math.tanh(x * V.drive); }
     shaper.curve = cur; const sg = ctx.createGain(); sg.gain.value = 1.4; shaper.connect(sg); sg.connect(this.master);
-    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(1.0, t + 0.02); g.gain.setValueAtTime(1.0, t + 0.6); g.gain.exponentialRampToValueAtTime(0.001, t + 1.2); g.connect(shaper);
-    [180, 184, 271, 361].forEach((f) => { const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.setValueAtTime(f * 1.6, t); o.frequency.exponentialRampToValueAtTime(f * 0.5, t + 1.0); o.connect(g); o.start(t); o.stop(t + 1.2); });
-    const sub = ctx.createOscillator(); sub.type = 'sine'; sub.frequency.setValueAtTime(130, t); sub.frequency.exponentialRampToValueAtTime(38, t + 0.9); const subg = ctx.createGain(); subg.gain.value = 0.9; sub.connect(subg); subg.connect(this.master); sub.start(t); sub.stop(t + 1.1);
-    const n = this._noiseSrc(); const ng = ctx.createGain(); ng.gain.setValueAtTime(0.6, t); ng.gain.exponentialRampToValueAtTime(0.001, t + 0.5); n.connect(ng); ng.connect(this.master); n.start(t); n.stop(t + 0.5);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(1.0, t + 0.02); g.gain.setValueAtTime(1.0, t + V.dur * 0.55); g.gain.exponentialRampToValueAtTime(0.001, t + V.dur); g.connect(shaper);
+    V.base.forEach((f) => { const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.setValueAtTime(f * 1.5, t); o.frequency.exponentialRampToValueAtTime(f * 0.55, t + V.dur * 0.9); o.connect(g); o.start(t); o.stop(t + V.dur); });
+    const sub = ctx.createOscillator(); sub.type = 'sine'; sub.frequency.setValueAtTime(V.sub[0], t); sub.frequency.exponentialRampToValueAtTime(V.sub[1], t + V.dur * 0.8); const subg = ctx.createGain(); subg.gain.value = 0.9; sub.connect(subg); subg.connect(this.master); sub.start(t); sub.stop(t + V.dur);
+    const n = this._noiseSrc(); const bp = ctx.createBiquadFilter(); bp.type = variant === 'gurgle' ? 'lowpass' : 'highpass'; bp.frequency.value = variant === 'gurgle' ? 800 : 1500;
+    const ng = ctx.createGain(); ng.gain.setValueAtTime(V.noise, t); ng.gain.exponentialRampToValueAtTime(0.001, t + 0.55); n.connect(bp); bp.connect(ng); ng.connect(this.master); n.start(t); n.stop(t + 0.6);
+  }
+
+  // Rising electric tone when a battery cell tops up the flashlight.
+  charge(pan = 0) {
+    if (!this.ready || !this.enabled) return;
+    const ctx = this.ctx, t = this._now(), { head } = this._out(pan, 0);
+    const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.setValueAtTime(320, t); o.frequency.exponentialRampToValueAtTime(1050, t + 0.5);
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.28, t + 0.05); g.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
+    o.connect(g); g.connect(head); o.start(t); o.stop(t + 0.6);
+  }
+
+  // Soft periodic idle blip so you can HEAR where an active green cell is.
+  blip(pan = 0) {
+    if (!this.ready || !this.enabled) return;
+    const ctx = this.ctx, t = this._now(), { head } = this._out(pan, 0.2);
+    const o = ctx.createOscillator(); o.type = 'sine'; o.frequency.value = 1400;
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.05, t + 0.01); g.gain.exponentialRampToValueAtTime(0.0006, t + 0.13);
+    o.connect(g); g.connect(head); o.start(t); o.stop(t + 0.15);
+  }
+
+  // Metallic duct rattle when a vent/hatch swings open.
+  ductRattle(pan = 0) {
+    if (!this.ready || !this.enabled) return;
+    const ctx = this.ctx, t = this._now(), { head } = this._out(pan, 0.15);
+    const n = this._noiseSrc(); const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2600; bp.Q.value = 5;
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.22, t + 0.03); g.gain.exponentialRampToValueAtTime(0.001, t + 0.7);
+    // tremolo for the rattle
+    const lfo = ctx.createOscillator(); lfo.type = 'square'; lfo.frequency.value = 22; const lg = ctx.createGain(); lg.gain.value = 0.14; lfo.connect(lg); lg.connect(g.gain);
+    n.connect(bp); bp.connect(g); g.connect(head); n.start(t); n.stop(t + 0.75); lfo.start(t); lfo.stop(t + 0.75);
+    const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.setValueAtTime(180, t); o.frequency.exponentialRampToValueAtTime(70, t + 0.6); const og = ctx.createGain(); og.gain.setValueAtTime(0.12, t); og.gain.exponentialRampToValueAtTime(0.001, t + 0.65); o.connect(og); og.connect(head); o.start(t); o.stop(t + 0.7);
   }
 
   boom(pan = 0) {

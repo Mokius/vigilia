@@ -149,6 +149,8 @@ export class Flashlight {
 
   setAimDir(dir) { this.targetDir.copy(dir).normalize(); }
 
+  recharge(amt) { this.battery = clamp(this.battery + amt, 0, 100); }
+
   // Angle test used by the AI: is a world point currently lit by the beam?
   litAmount(worldPos) {
     const v = worldPos.clone().sub(this.eye);

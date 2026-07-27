@@ -38,8 +38,8 @@ export const CONFIG = {
   atmos: {
     fogColor: 0x080a12,
     fogDensity: 0.115,       // exp2 fog
-    ambient: 0x0c1018,       // near-black fill so pure-black isn't crushed
-    ambientIntensity: 0.17,
+    ambient: 0x0b0e15,       // near-black fill so pure-black isn't crushed
+    ambientIntensity: 0.13,
     dustCount: 550,
   },
 
@@ -59,8 +59,15 @@ export const CONFIG = {
     smoothing: 0.18,         // aim lerp per frame
     battery: {
       enabled: true,
-      drainPerSec: 0.9,      // % per second while on
-      flickerBelow: 25,      // start flickering under this %
+      drainPerSec: 2.4,      // % per second while on (drains fast → the shutdown matters)
+      flickerBelow: 28,      // start flickering under this %
+    },
+    // Recharge by shining the beam on a green wall cell.
+    recharge: {
+      litThreshold: 0.4,     // beam must be on the cell this strongly
+      dwell: 0.85,           // seconds of light to trigger a charge
+      amount: 32,            // % restored per charge (partial, on purpose)
+      cellCooldown: [11, 20],// seconds a spent cell stays dark before relighting
     },
   },
 

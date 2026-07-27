@@ -83,11 +83,17 @@ function start() {
     if (post) post.setSize();
   });
 
-  // broken ceiling lamp: occasional faint flicker for ambience
-  let lampT = 0;
-  function ambientLamp(dt) {
-    lampT -= dt;
-    if (lampT <= 0) { lampT = 2 + Math.random() * 6; const on = Math.random() < 0.35; room.lampBulb.material.emissiveIntensity = on ? 0.4 + Math.random() * 0.6 : 0; }
+  // Stuttering fluorescent: mostly dark, sudden buzzing flashes that briefly
+  // reveal the room. Bursts of rapid flicker, then long darkness.
+  let fluoT = 0, fluoLevel = 0;
+  function flicker(dt) {
+    fluoT -= dt;
+    if (fluoT <= 0) {
+      if (Math.random() < 0.5) { fluoLevel = 20 + Math.random() * 22; fluoT = 0.03 + Math.random() * 0.1; }
+      else { fluoLevel = 0; fluoT = 0.7 + Math.random() * 3.2; }
+    }
+    const L = room.lights;
+    if (L && L.fluo) { L.fluo.intensity += (fluoLevel - L.fluo.intensity) * Math.min(1, dt * 30); L.fluoMesh.material.color.setScalar(0.03 + Math.min(0.5, L.fluo.intensity * 0.22)); }
   }
 
   window.__vig = { renderer, scene, rig, room, flashlight, input, post, game, audio, bus, THREE };
@@ -100,8 +106,9 @@ function start() {
     const dir = input.update();
     flashlight.setAimDir(dir);
     flashlight.update(dt, t);
-    ambientLamp(dt);
-    game.update(dt);
+    flicker(dt);
+    game.update(dt);        // sets vent/hatch targets, battery logic
+    room.update(dt, t);     // animates vent/hatch/doors + battery-cell glow
 
     // Reticle follows the pointer while not locked (menu / end); hidden in play.
     reticle.style.left = input.px + 'px';

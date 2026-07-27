@@ -75,7 +75,7 @@ export class UI {
     @keyframes shake{ 0%{transform:translate(-6px,4px) scale(1.06);} 50%{transform:translate(7px,-5px) scale(1.09);} 100%{transform:translate(-5px,-3px) scale(1.05);} }
     .endcard{ position:absolute; inset:0; display:none; flex-direction:column; align-items:center; justify-content:center;
       background:radial-gradient(60% 60% at 50% 45%, #0a0405 0%, #000 80%); color:#d9d2d2; }
-    .endcard.on{ display:flex; }
+    .endcard.on{ display:flex; pointer-events:auto; }
     .endcard h2{ font-weight:900; letter-spacing:.18em; font-size:clamp(22px,3.4vw,40px); text-shadow:0 0 16px rgba(150,20,20,.5); }
     .endcard p{ margin-top:10px; color:#8a8f9a; letter-spacing:.28em; font-size:12px; text-transform:uppercase; }
     .endcard button{ margin-top:26px; font:inherit; font-weight:800; letter-spacing:.24em; text-transform:uppercase; font-size:13px;
@@ -145,40 +145,67 @@ export class UI {
     if (this.redpulse) this.redpulse.style.boxShadow = `inset 0 0 120px 20px rgba(150,0,0,${(tension || 0) * 0.5})`;
   }
 
-  // Full-strip jumpscare: white flash → shaking creature face → callback.
-  showScare(eyeColor, onDone) {
-    if (!this.showOnThis) { setTimeout(() => onDone && onDone(), 1200); return; }
+  // Full-strip jumpscare: white flash → violent-shaking creature face + red wash
+  // + monster name → callback. Face + palette vary per monster type.
+  showScare(type, onDone) {
+    const eyeColor = typeof type === 'number' ? type : (type?.eyeColor ?? 0xff4040);
+    const style = (typeof type === 'object' && type?.face) || 'gaunt';
+    const name = (typeof type === 'object' && type?.name) || '';
+    if (!this.showOnThis) { setTimeout(() => onDone && onDone(), 1400); return; }
     this.hideHud();
     this.flash.style.transition = 'none'; this.flash.style.opacity = '1';
-    requestAnimationFrame(() => { this.flash.style.transition = 'opacity .5s'; this.flash.style.opacity = '0'; });
-    this.scare.innerHTML = ''; this.scare.classList.add('on');
-    const face = this._faceSVG(eyeColor); face.classList.add('shake'); this.scare.appendChild(face);
-    setTimeout(() => { this.scare.classList.remove('on'); this.scare.innerHTML = ''; onDone && onDone(); }, 1150);
+    requestAnimationFrame(() => { this.flash.style.transition = 'opacity .6s'; this.flash.style.opacity = '0'; });
+    this.scare.style.background = 'radial-gradient(60% 60% at 50% 50%, #200 0%, #000 75%)';
+    this.scare.innerHTML = '';
+    this.scare.classList.add('on');
+    const face = this._faceSVG(style, eyeColor); face.classList.add('shake'); this.scare.appendChild(face);
+    if (name) { const cap = document.createElement('div'); cap.textContent = name; cap.style.cssText = 'position:absolute;bottom:9%;left:0;width:100%;text-align:center;color:#e33;font-weight:900;letter-spacing:.3em;text-transform:uppercase;font-size:14px;text-shadow:0 0 12px #900;'; this.scare.appendChild(cap); }
+    setTimeout(() => { this.scare.classList.remove('on'); this.scare.innerHTML = ''; onDone && onDone(); }, 1400);
   }
 
-  _faceSVG(eyeColor) {
+  _faceSVG(style, eyeColor) {
     const hex = '#' + (eyeColor >>> 0).toString(16).padStart(6, '0').slice(-6);
     const svg = document.createElementNS(SVGNS, 'svg');
-    svg.setAttribute('viewBox', '0 0 400 400');
-    svg.setAttribute('width', '78%'); svg.setAttribute('height', '78%');
-    svg.innerHTML = `
-      <defs>
-        <radialGradient id="g" cx="50%" cy="42%" r="60%">
-          <stop offset="0%" stop-color="#111"/><stop offset="70%" stop-color="#050505"/><stop offset="100%" stop-color="#000"/>
-        </radialGradient>
-        <filter id="gl"><feGaussianBlur stdDeviation="6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-      </defs>
-      <ellipse cx="200" cy="200" rx="150" ry="185" fill="url(#g)"/>
-      <g filter="url(#gl)" fill="${hex}">
-        <ellipse cx="150" cy="165" rx="26" ry="34"/><ellipse cx="250" cy="165" rx="26" ry="34"/>
-      </g>
-      <ellipse cx="150" cy="168" rx="9" ry="15" fill="#000"/><ellipse cx="250" cy="168" rx="9" ry="15" fill="#000"/>
-      <path d="M120 275 Q140 250 160 278 Q180 250 200 280 Q220 250 240 278 Q260 250 280 276
-               L280 300 Q200 350 120 300 Z" fill="#0a0a0a" stroke="${hex}" stroke-width="2"/>
-      <g fill="#d8d2c8">
-        <path d="M140 282 l10 20 l10 -20z"/><path d="M170 286 l10 22 l10 -22z"/>
-        <path d="M200 288 l10 22 l10 -22z"/><path d="M230 286 l10 22 l10 -22z"/>
-      </g>`;
+    svg.setAttribute('width', '92%'); svg.setAttribute('height', '92%');
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    const defs = `<defs>
+      <radialGradient id="skull" cx="50%" cy="42%" r="62%"><stop offset="0%" stop-color="#181414"/><stop offset="55%" stop-color="#0a0808"/><stop offset="100%" stop-color="#000"/></radialGradient>
+      <radialGradient id="eye" cx="50%" cy="50%" r="50%"><stop offset="0%" stop-color="#fff"/><stop offset="35%" stop-color="${hex}"/><stop offset="100%" stop-color="${hex}" stop-opacity="0"/></radialGradient>
+      <filter id="gl" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="7" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter></defs>`;
+    if (style === 'maw') {
+      svg.setAttribute('viewBox', '0 0 500 420');
+      svg.innerHTML = defs + `
+        <ellipse cx="250" cy="210" rx="240" ry="200" fill="url(#skull)"/>
+        <g filter="url(#gl)" fill="url(#eye)">
+          <circle cx="150" cy="120" r="26"/><circle cx="250" cy="105" r="30"/><circle cx="350" cy="120" r="26"/>
+          <circle cx="110" cy="175" r="16"/><circle cx="390" cy="175" r="16"/></g>
+        <g fill="#050505" stroke="${hex}" stroke-width="2">
+          <path d="M70 250 Q250 210 430 250 Q250 300 70 250 Z"/></g>
+        <g fill="#c9c2b4">
+          ${Array.from({ length: 13 }, (_, i) => { const x = 90 + i * 26; return `<path d="M${x} 250 l13 46 l13 -46z"/>`; }).join('')}
+          ${Array.from({ length: 12 }, (_, i) => { const x = 103 + i * 26; return `<path d="M${x} 250 l13 -40 l13 40z"/>`; }).join('')}
+        </g>`;
+    } else if (style === 'face') {
+      svg.setAttribute('viewBox', '0 0 420 480');
+      svg.innerHTML = defs + `
+        <path d="M210 20 C320 20 350 150 340 260 C332 360 280 460 210 460 C140 460 88 360 80 260 C70 150 100 20 210 20 Z" fill="url(#skull)"/>
+        <g filter="url(#gl)" fill="url(#eye)"><circle cx="150" cy="200" r="44"/><circle cx="270" cy="200" r="44"/></g>
+        <circle cx="150" cy="204" r="13" fill="#000"/><circle cx="270" cy="204" r="13" fill="#000"/>
+        <path d="M205 250 l8 60 l-16 0 z" fill="#120a0a"/>
+        <ellipse cx="210" cy="370" rx="46" ry="70" fill="#0a0505" stroke="${hex}" stroke-width="2"/>
+        <g fill="#cfc7b6"><path d="M180 312 l10 26 l10 -26z"/><path d="M210 314 l10 28 l10 -28z"/><path d="M240 312 l10 26 l10 -26z"/>
+          <path d="M188 428 l10 -24 l10 24z"/><path d="M218 428 l10 -24 l10 24z"/></g>`;
+    } else { // gaunt skull (watcher / runner)
+      svg.setAttribute('viewBox', '0 0 400 500');
+      svg.innerHTML = defs + `
+        <path d="M200 20 C300 20 330 130 322 250 C316 340 270 400 250 470 L150 470 C130 400 84 340 78 250 C70 130 100 20 200 20 Z" fill="url(#skull)"/>
+        <path d="M120 175 Q150 150 185 172 Q160 210 120 205 Z" fill="#000"/><path d="M280 175 Q250 150 215 172 Q240 210 280 205 Z" fill="#000"/>
+        <g filter="url(#gl)" fill="url(#eye)"><circle cx="150" cy="185" r="26"/><circle cx="250" cy="185" r="26"/></g>
+        <path d="M195 235 l10 60 l-20 0 z" fill="#0a0606"/>
+        <path d="M150 330 Q200 315 250 330 L250 440 Q200 470 150 440 Z" fill="#070404" stroke="${hex}" stroke-width="2"/>
+        <g fill="#cbc3b2">${Array.from({ length: 5 }, (_, i) => { const x = 158 + i * 21; return `<path d="M${x} 332 l9 30 l9 -30z"/><path d="M${x + 4} 440 l9 -26 l9 26z"/>`; }).join('')}</g>
+        <path d="M110 90 L140 140 M300 95 L268 150" stroke="#000" stroke-width="3" opacity=".6"/>`;
+    }
     return svg;
   }
 

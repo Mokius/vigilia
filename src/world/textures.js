@@ -102,18 +102,24 @@ function surface(size, opts) {
 let _cache = null;
 export function buildTextures() {
   if (_cache) return _cache;
+  // Dark, grimy, industrial — not clean marble.
   const concrete = surface(512, {
-    baseFreq: 5, oct: 5, tint: [58, 60, 68], tintVar: 26,
-    roughBase: 0.86, roughVar: 0.22, normalScale: 2.6, seed: 3, streaks: 0.9,
+    baseFreq: 5, oct: 5, tint: [44, 46, 52], tintVar: 34,
+    roughBase: 0.92, roughVar: 0.18, normalScale: 3.4, seed: 3, streaks: 1.6,
   });
   const metal = surface(512, {
-    baseFreq: 3, oct: 5, tint: [70, 72, 78], tintVar: 40,
-    roughBase: 0.5, roughVar: 0.45, normalScale: 2.0, seed: 17, streaks: 0.6,
+    baseFreq: 3, oct: 5, tint: [50, 52, 60], tintVar: 50,
+    roughBase: 0.55, roughVar: 0.4, normalScale: 2.6, seed: 17, streaks: 1.1,
   });
   const rust = surface(256, {
-    baseFreq: 6, oct: 4, tint: [96, 62, 40], tintVar: 60,
-    roughBase: 0.92, roughVar: 0.12, normalScale: 3.2, seed: 42, streaks: 0.4,
+    baseFreq: 6, oct: 4, tint: [80, 48, 30], tintVar: 66,
+    roughBase: 0.95, roughVar: 0.1, normalScale: 3.6, seed: 42, streaks: 0.6,
   });
-  _cache = { concrete, metal, rust };
+  // Dark mottled "skin" for creatures — reads as flesh, not a white block.
+  const skin = surface(256, {
+    baseFreq: 7, oct: 5, tint: [26, 16, 16], tintVar: 40,
+    roughBase: 0.7, roughVar: 0.3, normalScale: 4.0, seed: 91, streaks: 0.3,
+  });
+  _cache = { concrete, metal, rust, skin };
   return _cache;
 }
