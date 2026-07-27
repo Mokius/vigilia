@@ -1,2 +1,5 @@
+assets/mixamo/raw/*.fbx
+assets/mixamo/raw/anims/*.fbx
+.tmp_pipeline_test/
 node_modules/
 .DS_Store

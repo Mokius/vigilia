@@ -1,0 +1,4 @@
+Deja aqui: romero.fbx, parasite.fbx, drake.fbx
+y dentro de anims/ todos los .fbx del "Scary Zombie Pack" (Without Skin).
+Luego ejecuta:  bash tools/build_models.sh
+Instrucciones completas: docs/MIXAMO_INGESTA.md

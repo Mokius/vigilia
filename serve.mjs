@@ -19,6 +19,11 @@ const MIME = {
   '.webp': 'image/webp',
   '.mp3': 'audio/mpeg',
   '.wasm': 'application/wasm',
+  '.glb': 'model/gltf-binary',
+  '.gltf': 'model/gltf+json',
+  '.bin': 'application/octet-stream',
+  '.ktx2': 'image/ktx2',
+  '.fbx': 'application/octet-stream',
 };
 
 import { writeFile } from 'node:fs/promises';
