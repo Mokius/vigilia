@@ -74,6 +74,15 @@ function start() {
   });
   window.addEventListener('contextmenu', (e) => { e.preventDefault(); toggle(); });
 
+  // Hidden perf readout (key P) — a diagnostic, not UI. Off by default.
+  const perfBox = document.createElement('div');
+  perfBox.style.cssText = 'position:fixed;left:8px;top:8px;z-index:60;display:none;'
+    + 'font:12px ui-monospace,Consolas,monospace;color:#7dffab;background:rgba(0,0,0,.6);padding:5px 8px;border:1px solid #2f8f5c';
+  document.body.appendChild(perfBox);
+  window.addEventListener('keydown', (e) => {
+    if (e.key.toLowerCase() === 'p') perfBox.style.display = perfBox.style.display === 'none' ? 'block' : 'none';
+  });
+
   window.addEventListener('resize', () => {
     renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, CONFIG.render.maxPixelRatio));
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -105,12 +114,37 @@ function start() {
     }
   }
 
-  window.__vig = { renderer, scene, rig, room, flashlight, input, post, game, audio, bus, crt, THREE };
+  // ---- Adaptive resolution -------------------------------------------------
+  // The scene is rasterized 4x per frame, so resolution is by far the dominant
+  // cost. Hold a stable frame time by scaling the drawing buffer instead of
+  // dropping visual features.
+  const A = CONFIG.render.adaptive;
+  const basePR = () => Math.min(window.devicePixelRatio || 1, CONFIG.render.maxPixelRatio);
+  let quality = 1, emaMs = 16, lastAdjust = 0;
+  function adaptQuality(dtMs, now) {
+    if (!A.enabled) return;
+    emaMs += (dtMs - emaMs) * 0.08;
+    if (now - lastAdjust < A.settleMs) return;
+    let q = quality;
+    if (emaMs > A.worseMs) q = Math.max(A.min, q - 0.15);
+    else if (emaMs < A.betterMs) q = Math.min(A.max, q + 0.1);
+    if (Math.abs(q - quality) > 0.001) {
+      quality = q; lastAdjust = now;
+      renderer.setPixelRatio(basePR() * quality);
+      if (post) post.setSize();
+    }
+  }
 
-  let last = performance.now();
+  window.__vig = { renderer, scene, rig, room, flashlight, input, post, game, audio, bus, crt, THREE,
+    perf: () => ({ ms: +emaMs.toFixed(2), fps: Math.round(1000 / emaMs), quality: +quality.toFixed(2) }) };
+
+  let last = performance.now(), frame = 0;
   function loop(now) {
     const t = now / 1000;
-    const dt = Math.min(0.05, (now - last) / 1000); last = now;
+    const dtMs = now - last;
+    const dt = Math.min(0.05, dtMs / 1000); last = now;
+    adaptQuality(dtMs, now);
+    frame++;
 
     flashlight.setAimDir(input.update());
     flashlight.update(dt, t);
@@ -124,7 +158,14 @@ function start() {
     reticle.style.top = input.py + 'px';
     reticle.style.opacity = (!input.locked && game.state !== GState.SCARE) ? '1' : '0';
 
-    renderer.shadowMap.needsUpdate = true;
+    if (perfBox.style.display !== 'none' && (frame % 15) === 0) {
+      perfBox.textContent = `${Math.round(1000 / emaMs)} fps  ${emaMs.toFixed(1)} ms  res x${quality.toFixed(2)}`
+        + `  bichos:${game.manager.enemies.length}  bat:${Math.round(flashlight.battery)}%`;
+    }
+
+    // Shadows follow the flashlight, but re-rendering every shadow caster at
+    // 60 Hz is wasted work — ~30 Hz is indistinguishable here.
+    renderer.shadowMap.needsUpdate = (frame % (CONFIG.render.shadowEveryNthFrame || 1)) === 0;
     rig.render(renderer, scene, null);
     if (post) post.process(t, game.scareFX, game.shake);
 

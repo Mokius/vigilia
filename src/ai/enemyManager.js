@@ -86,6 +86,16 @@ export class EnemyManager {
     for (const e of this.enemies) if (e.state === EState.DONE) e.dispose();
     this.enemies = this.enemies.filter(LIVE);
 
+    // Only the two nearest creatures cast shadows. The shadow pass re-renders
+    // every caster, and in near-darkness a distant creature's shadow is not
+    // something anyone can see anyway.
+    if (this.enemies.length > 2) {
+      const order = this.enemies.slice().sort((a, b) => b.p - a.p);
+      order.forEach((e, i) => e.setCastShadow(i < 2));
+    } else {
+      for (const e of this.enemies) e.setCastShadow(true);
+    }
+
     // physical openings follow whoever is actually using them
     const routes = new Set(this.enemies.filter(LIVE).map((e) => e.routeName));
     this.room.setVent(routes.has('vent') ? 1 : 0);

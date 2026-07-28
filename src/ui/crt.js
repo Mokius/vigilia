@@ -39,7 +39,9 @@ export class CRTConsole {
   }
 
   _build() {
-    const metal = this.room.metal || new THREE.MeshStandardMaterial({ color: 0x50555c, roughness: 0.6, metalness: 0.5 });
+    // Dark painted steel: the player aims the flashlight straight at this thing
+    // from ~1 m, and pale metal blows out to pure white at that range.
+    const metal = new THREE.MeshStandardMaterial({ color: 0x22262b, roughness: 0.82, metalness: 0.45 });
     const g = new THREE.Group(); g.position.copy(this.parked); this.group = g; this.scene.add(g);
 
     // --- cart ---
@@ -54,61 +56,135 @@ export class CRTConsole {
       wheel.position.set(x, 0.05, z); wheel.rotation.y = Math.PI / 2; g.add(wheel);
     }
 
-    // --- CRT body + curved glass ---
-    const shell = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.72, 0.62),
-      new THREE.MeshStandardMaterial({ color: 0x3b3a35, roughness: 0.72, metalness: 0.15 }));
-    shell.position.set(0, 1.22, -0.06); shell.castShadow = shell.receiveShadow = true; g.add(shell);
-    const bezel = new THREE.Mesh(new THREE.BoxGeometry(0.94, 0.66, 0.04),
-      new THREE.MeshStandardMaterial({ color: 0x2a2925, roughness: 0.8 }));
-    bezel.position.set(0, 1.22, 0.26); g.add(bezel);
+    // --- CRT monitor: inset screen, tapered tube, vents, knobs, power lamp ---
+    const caseMat = new THREE.MeshStandardMaterial({ color: 0x272621, roughness: 0.8, metalness: 0.1 });
+    const darkMat = new THREE.MeshStandardMaterial({ color: 0x181713, roughness: 0.88, metalness: 0.08 });
+    const CY = 1.24;                                    // screen centre height
+
+    // front housing ring (4 bars) so the glass is genuinely recessed
+    const bar = (sx, sy, px, py, pz, mat) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, 0.07), mat || caseMat);
+      m.position.set(px, py, pz); m.castShadow = m.receiveShadow = true; g.add(m); return m;
+    };
+    bar(1.02, 0.10, 0, CY + 0.35, 0.26);                // top
+    bar(1.02, 0.14, 0, CY - 0.37, 0.26);                // bottom (thicker, holds knobs)
+    bar(0.10, 0.80, -0.46, CY, 0.26);                   // left
+    bar(0.10, 0.80, 0.46, CY, 0.26);                    // right
+    // tapered tube behind
+    const tube1 = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.72, 0.3), caseMat);
+    tube1.position.set(0, CY, 0.06); tube1.castShadow = tube1.receiveShadow = true; g.add(tube1);
+    const tube2 = new THREE.Mesh(new THREE.BoxGeometry(0.6, 0.48, 0.24), caseMat);
+    tube2.position.set(0, CY, -0.16); tube2.castShadow = true; g.add(tube2);
+    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.09, 0.16, 12), darkMat);
+    neck.rotation.x = Math.PI / 2; neck.position.set(0, CY, -0.34); g.add(neck);
+    // cooling vents on top
+    for (let i = 0; i < 7; i++) {
+      const v = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.012, 0.016), darkMat);
+      v.position.set(0, CY + 0.365, 0.02 - i * 0.032); g.add(v);
+    }
+    // knobs + power lamp on the bottom bar
+    for (const kx of [0.24, 0.33]) {
+      const k = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.026, 0.03, 12), darkMat);
+      k.rotation.x = Math.PI / 2; k.position.set(kx, CY - 0.37, 0.30); k.castShadow = true; g.add(k);
+      const notch = new THREE.Mesh(new THREE.BoxGeometry(0.004, 0.018, 0.004), caseMat);
+      notch.position.set(kx, CY - 0.362, 0.316); g.add(notch);
+    }
+    this.powerLamp = new THREE.Mesh(new THREE.SphereGeometry(0.011, 8, 8),
+      new THREE.MeshBasicMaterial({ color: 0xff6a3a, toneMapped: false }));
+    this.powerLamp.position.set(-0.36, CY - 0.37, 0.30); g.add(this.powerLamp);
 
     this.canvas = document.createElement('canvas'); this.canvas.width = W; this.canvas.height = H;
     this.ctx = this.canvas.getContext('2d');
     this.tex = new THREE.CanvasTexture(this.canvas);
     this.tex.colorSpace = THREE.SRGBColorSpace;
-    this.screenMat = new THREE.MeshBasicMaterial({ map: this.tex, toneMapped: false });
-    this.screen = new THREE.Mesh(new THREE.PlaneGeometry(0.86, 0.6), this.screenMat);
-    this.screen.position.set(0, 1.22, 0.285); g.add(this.screen);
-    // slight convex glass over the phosphor
-    const glass = new THREE.Mesh(new THREE.SphereGeometry(1.2, 24, 16, 0, 0.38, Math.PI / 2 - 0.13, 0.26),
-      new THREE.MeshPhysicalMaterial({ color: 0x0a0d10, roughness: 0.12, metalness: 0, transmission: 0.55, transparent: true, opacity: 0.28, ior: 1.5 }));
-    glass.position.set(0, 1.22, -0.86); g.add(glass);
-    this.screenLight = new THREE.PointLight(0x66ff99, 1.5, 2.6, 2);
-    this.screenLight.position.set(0, 1.22, 0.5); g.add(this.screenLight);
+    this.screenMat = new THREE.MeshBasicMaterial({ map: this.tex, toneMapped: false, transparent: true });
+    this.screen = new THREE.Mesh(new THREE.PlaneGeometry(0.86, 0.60), this.screenMat);
+    this.screen.position.set(0, CY, 0.245); g.add(this.screen);       // recessed
+    // convex glass sitting proud of the bezel
+    const glass = new THREE.Mesh(new THREE.SphereGeometry(1.15, 28, 18, 0, 0.40, Math.PI / 2 - 0.14, 0.28),
+      new THREE.MeshPhysicalMaterial({ color: 0x0a0d10, roughness: 0.08, metalness: 0, transmission: 0.6, transparent: true, opacity: 0.22, ior: 1.52 }));
+    glass.position.set(0, CY, -0.83); g.add(glass);
+    this.screenLight = new THREE.PointLight(0x66ff99, 1.3, 2.4, 2);
+    this.screenLight.position.set(0, CY, 0.45); g.add(this.screenLight);
+    // power cable drooping to the floor
+    const cable = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.8, 6), darkMat);
+    cable.position.set(0.34, 0.42, -0.3); cable.rotation.z = 0.25; g.add(cable);
 
-    // --- lever panel on the cart's lower shelf ---
-    const panel = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.26, 0.05),
-      new THREE.MeshStandardMaterial({ color: 0x33352f, roughness: 0.8, metalness: 0.3 }));
-    panel.position.set(0, 0.62, 0.24); panel.rotation.x = -0.45; panel.castShadow = true; g.add(panel);
+    // --- control panel: engraved plate, collared levers, screws -------------
+    const panel = new THREE.Group();
+    panel.position.set(0, 0.60, 0.235); panel.rotation.x = -0.42; g.add(panel);
+    // Matte, non-metallic: the beam hits this plate almost head-on, and any
+    // specular at all turns it into a white card.
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.94, 0.28, 0.045),
+      new THREE.MeshStandardMaterial({ color: 0x1e211c, roughness: 0.97, metalness: 0.0 }));
+    plate.castShadow = plate.receiveShadow = true; panel.add(plate);
+    panel.add(this._panelLabels());
+    for (const sx of [-0.44, 0.44]) for (const sy of [-0.12, 0.12]) {
+      const s = new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.007, 0.01, 6),
+        new THREE.MeshStandardMaterial({ color: 0x555a60, roughness: 0.4, metalness: 0.85 }));
+      s.rotation.x = Math.PI / 2; s.position.set(sx, sy, 0.026); panel.add(s);
+    }
 
-    const leverMat = new THREE.MeshStandardMaterial({ color: 0x9aa0a6, roughness: 0.45, metalness: 0.7 });
-    const knobMat = new THREE.MeshStandardMaterial({ color: 0xb8452f, roughness: 0.5, metalness: 0.2 });
+    // Everything here is aimed at from ~1 m: keep albedo low or it clips to white.
+    const steel = new THREE.MeshStandardMaterial({ color: 0x4a4f56, roughness: 0.42, metalness: 0.75 });
+    const bakelite = new THREE.MeshStandardMaterial({ color: 0x121212, roughness: 0.55, metalness: 0.1 });
     this.levers = [];
-    for (let i = 0; i < 5; i++) {
+    const mkLever = (x, scale, knobColor) => {
+      // collar sunk into the plate, so the lever emerges from a real hole
+      const collar = new THREE.Mesh(new THREE.CylinderGeometry(0.026 * scale, 0.03 * scale, 0.018, 12), steel);
+      collar.rotation.x = Math.PI / 2; collar.position.set(x, -0.02, 0.026); panel.add(collar);
       const pivot = new THREE.Group();
-      pivot.position.set(-0.3 + i * 0.15, 0.66, 0.26); g.add(pivot);
-      const arm = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.13, 0.022), leverMat);
-      arm.geometry.translate(0, 0.065, 0); arm.castShadow = true; pivot.add(arm);
-      const knob = new THREE.Mesh(new THREE.SphereGeometry(0.024, 10, 10), knobMat);
-      knob.position.y = 0.14; pivot.add(knob);
+      pivot.position.set(x, -0.02, 0.03); panel.add(pivot);
+      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.008 * scale, 0.012 * scale, 0.12 * scale, 10), steel);
+      arm.geometry.translate(0, 0.06 * scale, 0); arm.castShadow = true; pivot.add(arm);
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.016 * scale, 0.005 * scale, 6, 12), bakelite);
+      ring.rotation.x = Math.PI / 2; ring.position.y = 0.1 * scale; pivot.add(ring);
+      const knob = new THREE.Mesh(new THREE.SphereGeometry(0.023 * scale, 14, 12),
+        new THREE.MeshStandardMaterial({ color: knobColor, roughness: 0.42, metalness: 0.15 }));
+      knob.position.y = 0.125 * scale; knob.castShadow = true; pivot.add(knob);
+      return { pivot, knob };
+    };
+
+    for (let i = 0; i < 5; i++) {
+      const { pivot, knob } = mkLever(-0.31 + i * 0.135, 1.0, 0x2b2d31);
+      pivot.userData.target = 0.42;
       this.levers.push(pivot);
       this.controls.push({ name: 'night' + (i + 1), night: i + 1, obj: knob, pivot });
     }
-    // big start lever, to the right
-    const sp = new THREE.Group(); sp.position.set(0.4, 0.66, 0.26); g.add(sp);
-    const sArm = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.2, 0.035), leverMat);
-    sArm.geometry.translate(0, 0.1, 0); sArm.castShadow = true; sp.add(sArm);
-    const sKnob = new THREE.Mesh(new THREE.SphereGeometry(0.042, 12, 12),
-      new THREE.MeshStandardMaterial({ color: 0xc4331f, roughness: 0.45, metalness: 0.25 }));
-    sKnob.position.y = 0.21; sp.add(sKnob);
-    this.startPivot = sp;
-    this.controls.push({ name: 'start', obj: sKnob, pivot: sp });
+    const big = mkLever(0.40, 1.7, 0x8f2a18);
+    this.startPivot = big.pivot; this.startPivot.userData.target = -0.12;
+    this.controls.push({ name: 'start', obj: big.knob, pivot: big.pivot });
 
     this._syncLevers();
   }
 
+  // Engraved-looking legend silk-screened on the control plate.
+  _panelLabels() {
+    const cv = document.createElement('canvas'); cv.width = 940; cv.height = 280;
+    const c = cv.getContext('2d');
+    c.fillStyle = '#1e211c'; c.fillRect(0, 0, 940, 280);
+    // brushed streaks
+    c.globalAlpha = 0.07;
+    for (let i = 0; i < 160; i++) { c.fillStyle = i % 2 ? '#fff' : '#000'; c.fillRect(0, Math.random() * 280, 940, 1); }
+    c.globalAlpha = 1;
+    c.fillStyle = '#cfd3c8'; c.textAlign = 'center';
+    c.font = `26px ${CONFIG.fonts.stencil}`;
+    c.fillText('S E L E C T O R   D E   T U R N O', 340, 40);
+    c.font = `34px ${CONFIG.fonts.crt}`;
+    for (let i = 0; i < 5; i++) c.fillText(String(i + 1), 160 + i * 135, 250);
+    c.fillStyle = '#e0b0a0'; c.font = `28px ${CONFIG.fonts.stencil}`;
+    c.fillText('I N I C I O', 828, 40);
+    c.strokeStyle = '#8f948a'; c.lineWidth = 3; c.strokeRect(742, 56, 172, 190);
+    const tex = new THREE.CanvasTexture(cv); tex.colorSpace = THREE.SRGBColorSpace;
+    const m = new THREE.Mesh(new THREE.PlaneGeometry(0.94, 0.28),
+      new THREE.MeshStandardMaterial({ map: tex, roughness: 0.97, metalness: 0.0 }));
+    m.position.z = 0.0231;
+    return m;
+  }
+
   _syncLevers() {
-    this.levers.forEach((p, i) => { p.rotation.x = (i + 1 === this.night) ? -0.5 : 0.42; });
+    // store targets; update() eases toward them so throws never snap
+    this.levers.forEach((p, i) => { p.userData.target = (i + 1 === this.night) ? -0.52 : 0.42; });
   }
 
   _initCanvas() {
@@ -117,7 +193,13 @@ export class CRTConsole {
     this._dirty = true;
   }
 
-  worldPosOf(ctrl) { return ctrl.obj.getWorldPosition(new THREE.Vector3()); }
+  worldPosOf(ctrl) {
+    // The levers hang off cart -> panel -> pivot. Force the chain up to date or
+    // this returns a stale position (e.g. before the first render) and aiming
+    // silently targets empty air.
+    ctrl.obj.updateWorldMatrix(true, false);
+    return ctrl.obj.getWorldPosition(new THREE.Vector3());
+  }
 
   setAim(name, frac) { this.aim.name = name; this.aim.frac = frac; }
   setNight(n) { this.night = clamp(n | 0, 1, 5); this._syncLevers(); }
@@ -206,20 +288,39 @@ export class CRTConsole {
 
   update(dt) {
     this.t += dt;
-    // roll the cart in/out of the corridor
-    const targ = this.docked ? 0 : 1;
-    this.rolling += (targ - this.rolling) * Math.min(1, dt * 1.1);
-    this.group.position.lerpVectors(this.parked, this.away, this.rolling);
-    // tube power: degauss-style collapse as it rolls away
+
+    // ---- cart travel: a fixed-duration eased tween, not an exponential chase.
+    // Framerate-independent and genuinely smooth in both directions.
+    const dur = 2.6;
+    const dir = this.docked ? -1 : 1;
+    this._rollT = clamp((this._rollT ?? (this.docked ? 0 : 1)) + dir * dt / dur, 0, 1);
+    const s = this._rollT;
+    const eased = s * s * s * (s * (s * 6 - 15) + 10);      // smootherstep
+    this.rolling = eased;
+    this.group.position.lerpVectors(this.parked, this.away, eased);
+    // wheels turn with the distance actually travelled
+    this.group.rotation.y = Math.sin(eased * Math.PI) * 0.02;
+
+    // ---- tube power: collapses as it leaves, warms back up on return
     const wantPower = this.docked ? 1 : 0;
-    this.power += (wantPower - this.power) * Math.min(1, dt * 2.2);
+    this.power += (wantPower - this.power) * Math.min(1, dt * 3.0);
     const p = clamp(this.power, 0, 1);
     this.screen.scale.set(1, Math.max(0.02, p), 1);
-    this.screenMat.opacity = p; this.screenMat.transparent = true;
-    this.screenLight.intensity = 1.5 * p;
-    this.startPivot.rotation.x = -0.1 - 0.5 * (1 - p);
+    this.screenMat.opacity = p;
+    this.screenLight.intensity = 1.3 * p;
+    this.powerLamp.material.color.setRGB(p * 1.0, p * 0.42, p * 0.22);
 
-    if (p > 0.02) this._draw();
+    // ---- lever throws, eased
+    const k = Math.min(1, dt * 9);
+    for (const lv of this.levers) lv.rotation.x += ((lv.userData.target ?? 0.42) - lv.rotation.x) * k;
+    const st = -0.12 - 0.42 * (1 - p);
+    this.startPivot.rotation.x += (st - this.startPivot.rotation.x) * k;
+
+    // ---- redraw the phosphor at a fixed low rate: this canvas + texture upload
+    // was the single biggest per-frame cost in the whole experience.
+    this._acc = (this._acc || 0) + dt;
+    const period = 1 / (CONFIG.render.crtHz || 12);
+    if (p > 0.02 && this._acc >= period) { this._acc = 0; this._draw(); }
     return p;
   }
 

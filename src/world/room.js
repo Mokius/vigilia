@@ -192,18 +192,32 @@ export class Room {
 
   _clock(pos) {
     const grp = new THREE.Group(); grp.position.copy(pos); this.group.add(grp);
-    const cv = document.createElement('canvas'); cv.width = cv.height = 256;
+    const R = 512, C = R / 2;
+    const cv = document.createElement('canvas'); cv.width = cv.height = R;
     const x = cv.getContext('2d');
-    x.fillStyle = '#d8d2c4'; x.beginPath(); x.arc(128, 128, 124, 0, 7); x.fill();
-    x.strokeStyle = '#15120f'; x.lineWidth = 6; x.stroke();
-    x.fillStyle = '#15120f'; x.font = 'bold 30px ' + CONFIG.fonts.stencil;
+    x.fillStyle = '#d8d2c4'; x.beginPath(); x.arc(C, C, C - 8, 0, 7); x.fill();
+    x.strokeStyle = '#15120f'; x.lineWidth = 12; x.stroke();
+    // the shift ends at 6 — mark that sector so the goal is unmistakable
+    x.fillStyle = 'rgba(170,32,24,0.16)';
+    x.beginPath(); x.moveTo(C, C); x.arc(C, C, C - 20, -Math.PI / 2, Math.PI / 2); x.closePath(); x.fill();
     x.textAlign = 'center'; x.textBaseline = 'middle';
     for (let i = 1; i <= 12; i++) {
       const a = (i / 12) * Math.PI * 2 - Math.PI / 2;
-      x.beginPath(); x.arc(128 + Math.cos(a) * 100, 128 + Math.sin(a) * 100, i % 3 === 0 ? 7 : 4, 0, 7); x.fill();
+      const tx = C + Math.cos(a) * (C - 62), ty = C + Math.sin(a) * (C - 62);
+      const six = (i === 6);
+      x.fillStyle = six ? '#a92018' : '#15120f';
+      x.font = `${six ? 'bold ' : ''}${six ? 62 : 44}px ${CONFIG.fonts.stencil}`;
+      x.fillText(String(i), tx, ty);
+      // minute ticks
+      x.beginPath();
+      x.arc(C + Math.cos(a) * (C - 22), C + Math.sin(a) * (C - 22), i % 3 === 0 ? 7 : 4, 0, 7);
+      x.fillStyle = '#15120f'; x.fill();
     }
-    // grime
-    x.fillStyle = 'rgba(60,50,35,0.28)'; x.beginPath(); x.arc(90, 160, 55, 0, 7); x.fill();
+    x.fillStyle = '#a92018'; x.font = `30px ${CONFIG.fonts.crt}`;
+    x.fillText('SALIDA 06:00', C, C + 118);
+    // decades of grime
+    x.fillStyle = 'rgba(60,50,35,0.26)'; x.beginPath(); x.arc(C * 0.7, C * 1.25, 110, 0, 7); x.fill();
+    x.fillStyle = 'rgba(40,34,24,0.18)'; x.beginPath(); x.arc(C * 1.35, C * 0.7, 78, 0, 7); x.fill();
     const tx = new THREE.CanvasTexture(cv); tx.colorSpace = THREE.SRGBColorSpace;
     const face = new THREE.Mesh(new THREE.CircleGeometry(0.17, 32), new THREE.MeshStandardMaterial({ map: tx, roughness: 0.7 }));
     face.position.z = 0.035; grp.add(face);

@@ -38,15 +38,42 @@ async function exists(url) {
   } catch { return false; }
 }
 
+// Parse each model ONCE and hand out skeleton-aware clones. Without this, four
+// creatures using the same file meant four parses and four texture uploads.
+const _cache = new Map();     // url -> { scene, animations }
+let _skelUtils = null;
+
+async function skeletonUtils() {
+  if (!_skelUtils) _skelUtils = await import('three/addons/utils/SkeletonUtils.js');
+  return _skelUtils;
+}
+
+async function instantiate(entry, url) {
+  const { clone } = await skeletonUtils();
+  const root = clone(entry.scene);
+  // Clone materials per instance so one creature fading out doesn't fade them
+  // all — textures stay shared, which is the part that actually costs memory.
+  root.traverse((o) => {
+    if (!o.isMesh && !o.isSkinnedMesh) return;
+    o.material = Array.isArray(o.material) ? o.material.map((m) => m.clone()) : o.material.clone();
+  });
+  return { scene: root, animations: entry.animations, url };
+}
+
 /** Load the first candidate URL that works. Returns null if none do. */
 export async function loadFirst(urls) {
   if (!urls || !urls.length) return null;
+  for (const url of urls) {
+    if (_cache.has(url)) return instantiate(_cache.get(url), url);
+  }
   const L = await loader();
   for (const url of urls) {
     if (!/^https?:/i.test(url) && !(await exists(url))) continue;
     try {
       const gltf = await L.loadAsync(url);
-      return { scene: gltf.scene, animations: gltf.animations || [], url };
+      const entry = { scene: gltf.scene, animations: gltf.animations || [] };
+      _cache.set(url, entry);
+      return instantiate(entry, url);
     } catch (e) {
       if (CONFIG.debug) console.warn('[model] failed', url, e);
     }

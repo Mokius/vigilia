@@ -184,6 +184,38 @@ export class AudioBus {
     o.connect(g); g.connect(head); o.start(t); o.stop(t + 0.6);
   }
 
+  // Rising tick while a battery cell is charging: pitch climbs with progress so
+  // you can hear how close you are without looking away.
+  tick(pan = 0, frac = 0) {
+    if (!this.ready || !this.enabled) return;
+    const ctx = this.ctx, t = this._now(), { head } = this._out(pan, 0);
+    const o = ctx.createOscillator(); o.type = 'square';
+    o.frequency.value = 620 + frac * 900;
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.075, t + 0.006);
+    g.gain.exponentialRampToValueAtTime(0.0005, t + 0.075);
+    o.connect(g); g.connect(head); o.start(t); o.stop(t + 0.09);
+  }
+
+  // Heavy hinge groan — a door being pushed open somewhere in the dark.
+  creak(pan = 0) {
+    if (!this.ready || !this.enabled) return;
+    const ctx = this.ctx, t = this._now(), { head } = this._out(pan, 0.2);
+    const o = ctx.createOscillator(); o.type = 'sawtooth';
+    o.frequency.setValueAtTime(58, t);
+    o.frequency.linearRampToValueAtTime(132, t + 0.5);
+    o.frequency.linearRampToValueAtTime(96, t + 1.0);
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 780; bp.Q.value = 7;
+    const g = ctx.createGain(); g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(0.2, t + 0.12);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 1.1);
+    // irregular stick-slip judder
+    const lfo = ctx.createOscillator(); lfo.type = 'square'; lfo.frequency.value = 11;
+    const lg = ctx.createGain(); lg.gain.value = 0.09; lfo.connect(lg); lg.connect(g.gain);
+    o.connect(bp); bp.connect(g); g.connect(head);
+    o.start(t); lfo.start(t); o.stop(t + 1.15); lfo.stop(t + 1.15);
+  }
+
   // Soft periodic idle blip so you can HEAR where an active green cell is.
   blip(pan = 0) {
     if (!this.ready || !this.enabled) return;

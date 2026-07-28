@@ -73,7 +73,10 @@ export class Flashlight {
           float rMax = uRadius * t + 1e-3;
           float r = length(vPos.xy) / rMax;                    // 0 axis → 1 edge
           float radial = pow(1.0 - clamp(r,0.0,1.0), 2.2);
-          float axial  = smoothstep(0.0,0.08,t) * (1.0 - smoothstep(0.45,1.0,t));
+          // Ramp the beam in slowly: at full density from the lens it saturates
+          // anything you stand close to (the menu console) and reads as a white
+          // blob. Real beams only become visible after some travel.
+          float axial  = smoothstep(0.0,0.30,t) * (1.0 - smoothstep(0.45,1.0,t));
           float n = vnoise(vPos*3.0 + vec3(0.0,0.0,uTime*0.6));
           n = 0.55 + 0.55*n;
           float a = radial * axial * n * 0.24 * uIntensity;
@@ -127,7 +130,7 @@ export class Flashlight {
           float cang = dot(normalize(v), uDir);
           float inCone = smoothstep(uCos, uCos+0.05, cang);
           float inLen = 1.0 - smoothstep(uLen*0.35, uLen, dist);
-          float near = smoothstep(0.25, 0.8, dist);   // don't let motes at the lens bloom huge
+          float near = smoothstep(0.55, 1.5, dist);   // don't let motes at the lens bloom huge
           vBright = inCone * inLen * near * uIntensity * (0.22+0.4*aSeed);
           vec4 mv = modelViewMatrix * vec4(p,1.0);
           gl_Position = projectionMatrix * mv;

@@ -32,7 +32,13 @@ export class Game {
     const a = this.audio;
     const sfx = { footstep: (p, m) => a.footstep(p, m), knock: (p, m) => a.knock(p, m), breath: (p, m) => a.breath(p, m), whisper: (p, m) => a.whisper(p, m), scrape: (p, m) => a.scrape(p, m) };
     this.bus.on('cue', ({ sound, pan, muffle }) => sfx[sound] && sfx[sound](pan, muffle));
-    this.bus.on('spawn', ({ pan }) => { if (Math.random() < 0.55) a.knock(pan, 0.65); });
+    // The opening announces itself BEFORE anything is visible.
+    this.bus.on('spawn', ({ pan, route }) => {
+      if (route === 'door') a.creak(pan);
+      else if (route === 'vent' || route === 'hatch') a.ductRattle(pan);
+      else if (route === 'window') a.scrape(pan, 0.2);
+      else a.knock(pan, 0.6);
+    });
     this.bus.on('banish', ({ pan }) => { a.scrape(pan, 0.25); a.boom(pan); });
   }
 
@@ -72,8 +78,12 @@ export class Game {
     this.scareFX = Math.max(this.scareFX, r.tension * 0.16);
 
     for (const c of this.pickups.update(dt, this.flashlight)) {
-      this.flashlight.recharge(CONFIG.pickups.amount);
-      this.audio.charge(c.pan);
+      if (c.kind === 'collected') {
+        this.flashlight.recharge(CONFIG.pickups.amount);
+        this.audio.charge(c.pan);
+      } else {
+        this.audio.tick(c.pan, c.frac);   // rising ticks while you hold it
+      }
     }
 
     if (r.scared) return this._onScare(r.scared);

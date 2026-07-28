@@ -16,6 +16,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { ROUTES, samplePath } from './routes.js';
+import { SPAWN } from './enemyTypes.js';
 import { loadFirst, prepareModel, bindClips, measureHeight } from './modelProvider.js';
 import { buildTextures } from '../world/textures.js';
 import { clamp, randRange, pick } from '../core/util.js';
@@ -72,10 +73,13 @@ export class Enemy {
     this.state = this.route.cross ? EState.CROSS : EState.APPROACH;
     this.p = 0; this.dwell = 0; this.lit = 0;
     this.pan = this.route.pan;
-    this.holdT = randRange(rng, 0.6, 1.6);
+    this.holdT = randRange(rng, 0.4, 1.0);
     this.cueT = randRange(rng, ...type.cueInterval) * 0.5;
     this._ph = rng() * 10; this._t = 0;
     this.stage = this.route.points[0][3];
+    // Appearance staging: the opening moves first while nothing is visible,
+    // then the body fades up. It must never simply pop into the room.
+    this.phase = 'opening'; this.phaseT = 0; this.opacity = 0;
 
     this.group = new THREE.Group(); scene.add(this.group);
     this._buildEyes(type.eyeColor);
@@ -163,11 +167,52 @@ export class Enemy {
     }
   }
 
+  /** Shadow casting is budgeted by the manager (only the nearest few). */
+  setCastShadow(on) {
+    if (this._shadowOn === on || !this.body) return;
+    this._shadowOn = on;
+    this.body.traverse((o) => { if (o.isMesh || o.isSkinnedMesh) o.castShadow = on; });
+  }
+
+  /** Fade the whole body (and its eyes) in or out. */
+  _setOpacity(v) {
+    this.opacity = clamp(v, 0, 1);
+    if (!this.body) return;
+    this.body.visible = this.opacity > 0.01;
+    this.body.traverse((o) => {
+      if (!o.isMesh && !o.isSkinnedMesh) return;
+      const mats = Array.isArray(o.material) ? o.material : [o.material];
+      for (const m of mats) {
+        if (!m) continue;
+        const solid = this.opacity >= 0.995;
+        m.transparent = !solid;
+        m.opacity = this.opacity;
+        m.depthWrite = true;
+      }
+    });
+  }
+
   /** Returns an array of {type,payload} events. */
   update(dt, flashlight) {
     this._t += dt;
     const ev = [];
     if (this.state === EState.DONE || !this.ready) return ev;
+
+    // ---- staged appearance: opening moves -> body fades in -> then it moves --
+    if (this.phase !== 'live') {
+      this.phaseT += dt;
+      if (this.phase === 'opening') {
+        this._setOpacity(0);
+        if (this.phaseT >= SPAWN.openingLead) { this.phase = 'fadein'; this.phaseT = 0; }
+        this._cues(dt, ev);
+        return ev;
+      }
+      this._setOpacity(this.phaseT / SPAWN.fadeIn);
+      this._playIntent(STAGE_CLIP[this.stage] || 'idle');
+      if (this.phaseT >= SPAWN.fadeIn + SPAWN.holdAfter) { this.phase = 'live'; this._setOpacity(1); }
+      this._cues(dt, ev);
+      return ev;
+    }
 
     this.lit = flashlight.litAmount(this.headWorld);
 
@@ -175,6 +220,8 @@ export class Enemy {
     if (this.state === EState.CROSS) {
       this.p += dt * this.type.crossSpeed;
       this._place(); this._playIntent('walk');
+      // slips back into the dark rather than vanishing on the spot
+      if (this.p > 0.82) this._setOpacity((1 - this.p) / 0.18);
       if (this.p >= 1) { this.state = EState.DONE; }
       this._cues(dt, ev);
       return ev;
@@ -211,9 +258,11 @@ export class Enemy {
       this.p -= dt * this.type.retreatSpeed;
       this._place();
       this._playIntent(STAGE_CLIP[this.stage] === 'crawl' ? 'crawl' : 'walk');
-      if (this.p <= 0) { this.state = EState.HIDE; this._hideT = 0.5; }
+      if (this.p <= 0) { this.state = EState.HIDE; this._hideT = 0.45; }
     } else if (this.state === EState.HIDE) {
+      // dissolve away over the last half second instead of blinking out
       this._hideT -= dt;
+      this._setOpacity(clamp(this._hideT / 0.45, 0, 1));
       if (this._hideT <= 0) this.state = EState.DONE;
     }
 
@@ -254,9 +303,8 @@ export class Enemy {
     this.eyes.position.copy(hw).addScaledVector(toEye, 0.11);
     const dim = this.state === EState.RETREAT || this.state === EState.HIDE;
     const k = dim ? 0.12 : clamp(0.45 + this.p * 0.55 + (this.lit > 0.3 ? 0.25 : 0), 0, 1);
-    this.eyeMat.opacity = k;
-    // subtle flicker so they feel alive
-    this.eyeMat.opacity *= 0.85 + 0.15 * Math.sin(this._t * 9 + this._ph);
+    // eyes obey the same fade as the body, so nothing pops in or out
+    this.eyeMat.opacity = k * this.opacity * (0.85 + 0.15 * Math.sin(this._t * 9 + this._ph));
     this.eyes.visible = this.state !== EState.DONE;
   }
 

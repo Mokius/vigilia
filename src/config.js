@@ -15,18 +15,24 @@ export const CONFIG = {
   screen: { floorCover: 0.70, near: 0.05, far: 60 },
 
   render: {
-    maxPixelRatio: 1.75,
-    shadowMapSize: 2048,
+    // The scene is rasterized FOUR times per frame (one per surface), so every
+    // pixel costs 4x. Keep DPR modest and let the adaptive scaler take over.
+    maxPixelRatio: 1.25,
+    shadowMapSize: 1024,       // 2048 was re-rendered every frame: too costly
+    shadowEveryNthFrame: 2,    // recompute the shadow map at ~30 Hz, not 60
     exposure: 1.2,
     post: true,
     bloom: { threshold: 0.48, strength: 1.1, radius: 0.7 },
     grain: 0.042, vignette: 1.1, aberration: 0.0016,
+    // Adaptive resolution: hold a stable frame time by scaling the buffer.
+    adaptive: { enabled: true, targetMs: 20, worseMs: 25, betterMs: 13, min: 0.55, max: 1.0, settleMs: 1100 },
+    crtHz: 12,                 // the CRT canvas only needs a dozen redraws/s
   },
 
   atmos: {
     fogColor: 0x080a12, fogDensity: 0.115,
     ambient: 0x0b0e15, ambientIntensity: 0.13,
-    dustCount: 550,
+    dustCount: 380,
   },
 
   flashlight: {
@@ -46,10 +52,12 @@ export const CONFIG = {
   // Battery pickups: physical objects, aim to collect, finite.
   pickups: {
     count: 6,
-    dwell: 1.5,                // seconds of continuous aim to collect
+    dwell: 1.4,                // seconds of continuous aim to collect
     amount: 28,                // % restored (never a full charge)
     litThreshold: 0.35,
-    maxAngle: 0.17,            // must be near the beam axis, not just in the cone
+    maxAngle: 0.16,            // must be near the beam axis, not just in the cone
+    // Only ONE cell can ever be charging: the one closest to the beam axis.
+    exclusive: true,
   },
 
   // Aim-to-activate for the diegetic menu controls. `maxAngle` is a TIGHT
