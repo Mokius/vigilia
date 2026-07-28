@@ -10,8 +10,8 @@ export const ENEMY_TYPES = [
     height: 1.85,
     routes: ['door', 'corridor', 'corner_l', 'corner_r'],
     crossRoute: 'corridorCross',
-    advanceSpeed: 0.100,      // ~10 s from cover to the player, unobserved
-    retreatSpeed: 0.55, crossSpeed: 0.30,
+    holdMin: 1.5, holdMax: 3.4,     // stands motionless, watching
+    dashMin: 0.12, dashMax: 0.19,   // then crosses to the next station in a blink
     banishTime: 0.55,
     cueInterval: [3.0, 5.2], cues: ['footstep', 'knock'],
     eyeColor: 0xbfe0ff, weight: 3, minNight: 1,
@@ -22,8 +22,8 @@ export const ENEMY_TYPES = [
     height: 1.50,
     routes: ['vent', 'hatch'],
     crossRoute: null,
-    advanceSpeed: 0.130,      // the crawler is the fastest thing in the room
-    retreatSpeed: 0.65, crossSpeed: 0.30,
+    holdMin: 0.9, holdMax: 2.2,     // the crawler barely waits
+    dashMin: 0.10, dashMax: 0.15,
     banishTime: 0.70,
     cueInterval: [2.4, 4.0], cues: ['scrape', 'breath'],
     eyeColor: 0xffd27a, weight: 2, minNight: 1,
@@ -34,8 +34,8 @@ export const ENEMY_TYPES = [
     height: 1.90,
     routes: ['window', 'corridor'],
     crossRoute: 'corridorCross',
-    advanceSpeed: 0.085,      // heavy, but still closes in ~12 s
-    retreatSpeed: 0.5, crossSpeed: 0.28,
+    holdMin: 2.0, holdMax: 4.2,     // heavy: long stares, then a brutal lunge
+    dashMin: 0.14, dashMax: 0.20,
     banishTime: 0.90,
     cueInterval: [3.4, 6.0], cues: ['knock', 'whisper'],
     eyeColor: 0xff5a5a, weight: 2, minNight: 2,
@@ -59,7 +59,9 @@ export function nightParams(night) {
 // moving BEFORE anything is visible, then the creature fades in — it must never
 // simply pop into existence.
 export const SPAWN = {
-  openingLead: 0.45,   // s the door/vent/hatch moves alone, still empty
+  // Long enough that the entry point's "tell" (grille rattling, hatch thumping,
+  // door creeping open) plays out ALONE first — that warning is the whole point.
+  openingLead: 0.85,
   fadeIn: 0.55,        // s the creature fades up from invisible
-  holdAfter: 0.35,     // s it lingers at the opening before advancing
+  holdAfter: 0.4,      // s it lingers at the opening before it starts moving
 };

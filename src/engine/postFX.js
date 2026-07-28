@@ -64,12 +64,12 @@ export class PostFX {
         tScene: { value: null }, tBloom: { value: null }, uTime: { value: 0 },
         uBloom: { value: b.strength }, uGrain: { value: CONFIG.render.grain },
         uVignette: { value: CONFIG.render.vignette }, uAberr: { value: CONFIG.render.aberration },
-        uScare: { value: 0 }, uShake: { value: new THREE.Vector2(0, 0) },
+        uScare: { value: 0 }, uShake: { value: new THREE.Vector2(0, 0) }, uFlash: { value: 0 },
       },
       vertexShader: VERT,
       fragmentShader: `precision highp float; varying vec2 vUv;
         uniform sampler2D tScene, tBloom; uniform float uTime,uBloom,uGrain,uVignette,uAberr,uScare;
-        uniform vec2 uShake;
+        uniform vec2 uShake; uniform float uFlash;
         float hash(vec2 p){ p=fract(p*vec2(443.897,441.423)); p+=dot(p,p+19.19); return fract(p.x*p.y); }
         void main(){
           // Screen-space shake: a jumpscare must jolt the image WITHOUT moving
@@ -86,6 +86,8 @@ export class PostFX {
           float g = hash(uv*vec2(1920.0,1080.0) + fract(uTime)*97.0) - 0.5;
           col += g * uGrain * (1.0 - 0.55*dot(col,vec3(0.33)));
           if(uScare>0.001){ float l=dot(col,vec3(0.33)); col=mix(col, vec3(l)*vec3(1.5,0.42,0.42), uScare*0.6); }
+          // jumpscare flash: blows the frame out on the same beat as the attack
+          col = mix(col, vec3(1.0,0.97,0.95), clamp(uFlash,0.0,1.0));
           gl_FragColor = vec4(clamp(col,0.0,1.0), 1.0);
         }`,
     }));
@@ -112,8 +114,9 @@ export class PostFX {
   }
 
   // Call AFTER the scene has been rendered directly to the screen.
-  process(t, scare = 0, shake = 0) {
+  process(t, scare = 0, shake = 0, flash = 0) {
     const r = this.renderer;
+    this.composite.mesh.material.uniforms.uFlash.value = flash;
     const u0 = this.composite.mesh.material.uniforms.uShake.value;
     if (shake > 0.001) {
       u0.set((Math.random() - 0.5) * 0.045 * shake, (Math.random() - 0.5) * 0.045 * shake);

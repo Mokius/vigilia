@@ -73,7 +73,10 @@ export class Enemy {
     this.state = this.route.cross ? EState.CROSS : EState.APPROACH;
     this.p = 0; this.dwell = 0; this.lit = 0;
     this.pan = this.route.pan;
-    this.holdT = randRange(rng, 0.4, 1.0);
+    // station-based movement (see update): hold still, then snap to the next one
+    this.station = 0; this.dashing = false; this.dashT = 0; this.dashDur = 0.15;
+    this.fromStation = 0; this.toStation = 0; this._clipRate = 1; this._windup = 0;
+    this.holdT = randRange(rng, 0.5, 1.2);
     this.cueT = randRange(rng, ...type.cueInterval) * 0.5;
     this._ph = rng() * 10; this._t = 0;
     this.stage = this.route.points[0][3];
@@ -167,6 +170,25 @@ export class Enemy {
     }
   }
 
+  /** How long it stands motionless. Never a fixed value. */
+  _rollHold() {
+    const T = this.type;
+    const base = randRange(this.rng, T.holdMin, T.holdMax);
+    // occasional very short hold => sudden double-move, deeply unnerving
+    return this.rng() < 0.18 ? base * 0.35 : base;
+  }
+
+  /** Snap to another station in a fraction of a second. */
+  _beginDash(to) {
+    if (to === this.station) { this.holdT = this._rollHold(); return; }
+    this.fromStation = this.station; this.toStation = to;
+    this.dashT = 0; this.dashing = true; this._windup = 0;
+    this.dashDur = randRange(this.rng, this.type.dashMin, this.type.dashMax);
+    // aggressive, fast animation for the blur of movement
+    this._clipRate = 3.4;
+    this._playIntent(STAGE_CLIP[this.stage] === 'crawl' ? 'crawl' : 'walk', true);
+  }
+
   /** Shadow casting is budgeted by the manager (only the nearest few). */
   setCastShadow(on) {
     if (this._shadowOn === on || !this.body) return;
@@ -216,50 +238,66 @@ export class Enemy {
 
     this.lit = flashlight.litAmount(this.headWorld);
 
-    // ---- crossing the corridor: never attacks, just walks past -------------
-    if (this.state === EState.CROSS) {
-      this.p += dt * this.type.crossSpeed;
-      this._place(); this._playIntent('walk');
-      // slips back into the dark rather than vanishing on the spot
-      if (this.p > 0.82) this._setOpacity((1 - this.p) / 0.18);
-      if (this.p >= 1) { this.state = EState.DONE; }
+    // ---- STATIONS, not gliding --------------------------------------------
+    // It stands dead still and watches you, then crosses to the next station in
+    // 0.1-0.2 s. You never see it travel; it is simply somewhere new. Holds are
+    // randomised so the rhythm is never predictable.
+    if (this.state === EState.CROSS || this.state === EState.APPROACH || this.state === EState.RETREAT) {
+      const last = this.route.points.length - 1;
+
+      if (this.dashing) {
+        this.dashT += dt;
+        const k = clamp(this.dashT / this.dashDur, 0, 1);
+        // easeInOutQuint: violent in the middle, lands hard
+        const e = k < 0.5 ? 16 * k * k * k * k * k : 1 - Math.pow(-2 * k + 2, 5) / 2;
+        this.p = (this.fromStation + (this.toStation - this.fromStation) * e) / last;
+        this._place();
+        if (k >= 1) {
+          this.dashing = false;
+          this.station = this.toStation;
+          this.holdT = this._rollHold();
+          this._playIntent('idle');
+          if (this.state === EState.APPROACH && this.station >= last) {
+            this.state = EState.ATTACK;
+            this._playIntent('scream', true);
+            ev.push({ type: 'scare', payload: { type: this.type, pan: this.pan, enemy: this } });
+            return ev;
+          }
+          if (this.state === EState.RETREAT && this.station <= 0) { this.state = EState.HIDE; this._hideT = 0.45; }
+          if (this.state === EState.CROSS && this.station >= last) { this.state = EState.DONE; }
+          ev.push({ type: 'step', payload: { pan: this.pan, p: this.p } });
+        }
+        this._cues(dt, ev);
+        return ev;
+      }
+
+      // --- holding: motionless, watching -----------------------------------
+      if (this.state === EState.APPROACH && this.lit > 0.35) {
+        this.dwell += dt * this.lit;
+        this._playIntent('peek');
+        if (this.dwell >= this.type.banishTime) {
+          this.state = EState.RETREAT;
+          ev.push({ type: 'banish', payload: { pan: this.pan, name: this.type.name } });
+          this._beginDash(Math.max(0, this.station - 1));
+        }
+        this._cues(dt, ev);
+        return ev;
+      }
+      this.dwell = Math.max(0, this.dwell - dt * 0.6);
+      this._playIntent('idle');
+      this.holdT -= dt;
+      // last moments before it moves: a tell you can just about catch
+      this._windup = clamp(1 - this.holdT / 0.22, 0, 1);
+      if (this.holdT <= 0) {
+        const dir = this.state === EState.RETREAT ? -1 : 1;
+        this._beginDash(clamp(this.station + dir, 0, last));
+      }
+      if (this.state === EState.CROSS) this._setOpacity(this.station >= last - 1 ? 0.35 : 1);
       this._cues(dt, ev);
       return ev;
     }
 
-    // ---- lit long enough -> back off and hide -----------------------------
-    if (this.state === EState.APPROACH) {
-      if (this.lit > 0.35) {
-        this.dwell += dt * this.lit;
-        this._playIntent(STAGE_CLIP[this.stage] === 'crawl' ? 'crawl' : 'peek');
-        if (this.dwell >= this.type.banishTime) {
-          this.state = EState.RETREAT;
-          this._timeScale = -1;
-          ev.push({ type: 'banish', payload: { pan: this.pan, name: this.type.name } });
-        }
-      } else {
-        this.dwell = Math.max(0, this.dwell - dt * 0.6);
-        // advance continuously, with deliberate pauses (reads as intent)
-        this.holdT -= dt;
-        if (this.holdT <= 0) {
-          this.p += dt * this.type.advanceSpeed;
-          if (this.rng() < 0.004) this.holdT = randRange(this.rng, 0.5, 1.8);
-        }
-        this._place();
-        this._playIntent(STAGE_CLIP[this.stage] || 'walk');
-        if (this.p >= 1) {
-          this.state = EState.ATTACK;
-          this._playIntent('scream', true);
-          ev.push({ type: 'scare', payload: { type: this.type, pan: this.pan, enemy: this } });
-          return ev;
-        }
-      }
-    } else if (this.state === EState.RETREAT) {
-      this.p -= dt * this.type.retreatSpeed;
-      this._place();
-      this._playIntent(STAGE_CLIP[this.stage] === 'crawl' ? 'crawl' : 'walk');
-      if (this.p <= 0) { this.state = EState.HIDE; this._hideT = 0.45; }
-    } else if (this.state === EState.HIDE) {
+    if (this.state === EState.HIDE) {
       // dissolve away over the last half second instead of blinking out
       this._hideT -= dt;
       this._setOpacity(clamp(this._hideT / 0.45, 0, 1));
@@ -283,18 +321,24 @@ export class Enemy {
   animate(dt) {
     if (!this.ready) return;
     if (this.mixer) {
-      if (this._curAction) this._curAction.timeScale = (this.state === EState.RETREAT ? -1 : 1);
+      if (this._curAction) this._curAction.timeScale = this.dashing ? this._clipRate : 1;
       this.mixer.update(dt);
     } else if (this.body && this.body.userData.proc) {
       // idle life for the procedural fallback
+      // Procedural fallback: almost frozen while holding (only breath), then a
+      // violent lurch during the dash, plus a wind-up tell just before it moves.
       const P = this.body.userData.proc, ph = this._t * 1.2 + this._ph;
-      P.chest.scale.y = 1 + Math.sin(ph * 2.2) * 0.03;
-      P.head.rotation.z = Math.sin(ph * 0.9) * 0.05;
-      P.head.rotation.y = Math.sin(ph * 0.37) * 0.12;
-      P.jaw.rotation.x = 0.3 + (0.5 + 0.5 * Math.sin(ph * 3.1)) * 0.22;
-      P.arms.forEach((a, i) => { a.sh.rotation.x = Math.sin(ph * 1.3 + i) * 0.08; });
-      const walking = STAGE_CLIP[this.stage] === 'walk';
-      this.body.position.y = Math.sin(ph * (walking ? 6 : 2)) * (walking ? 0.02 : 0.006);
+      const w = this._windup || 0, d = this.dashing ? 1 : 0;
+      P.chest.scale.y = 1 + Math.sin(ph * 2.2) * 0.02;
+      P.chest.rotation.x = -0.13 - d * 0.28 - w * 0.10;
+      P.head.rotation.z = Math.sin(ph * 0.55) * 0.03 + w * 0.09;
+      P.head.rotation.y = Math.sin(ph * 0.31) * 0.06;
+      P.jaw.rotation.x = 0.3 + d * 0.4 + w * 0.15;
+      P.arms.forEach((a, i) => {
+        a.sh.rotation.x = Math.sin(ph * 1.1 + i) * 0.03 - d * (i ? 0.5 : -0.35);
+        a.sh.rotation.z = a.sx * (0.04 + d * 0.22);
+      });
+      this.body.position.y = d ? Math.sin(this.dashT * 60) * 0.03 : Math.sin(ph * 2) * 0.005;
     }
 
     // eyes: billboarded slightly toward the player so they never sink into the skull

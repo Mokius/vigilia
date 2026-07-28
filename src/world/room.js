@@ -48,8 +48,10 @@ export class Room {
     const w = CONFIG.room.W / 2, d = CONFIG.room.D / 2, h = CONFIG.room.H;
     const g = this.group;
 
-    const floorMat = this._mat(tex.concrete, 3, 3, { color: 0x50545c });
-    const ceilMat = this._mat(tex.concrete, 3, 3, { color: 0x3c3f46 });
+    // floor and ceiling shared ONE material: identical maps and tiling, and
+    // every extra material clones three 1024 textures onto the GPU.
+    const floorMat = this._mat(tex.concrete, 3, 3, { color: 0x4a4e56 });
+    const ceilMat = floorMat;
     const wallMat = this._mat(tex.metal, 3, 2.4, { color: 0x5c616a, metalness: 0.5, roughness: 0.66 });
     const metal = this._mat(tex.metal, 2, 2, { color: 0x5f646c, metalness: 0.6, roughness: 0.55 });
     const rust = this._mat(tex.rust, 1, 1, { color: 0x7a4f30, metalness: 0.25, roughness: 0.95 });
@@ -109,8 +111,9 @@ export class Room {
     const bar = (x, y, z, sx, sy, sz) => { const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), this.metal); m.position.set(x, y, z); m.castShadow = m.receiveShadow = true; grp.add(m); };
     bar(-opW / 2, opH / 2, 0, 0.09, opH, 0.17); bar(opW / 2, opH / 2, 0, 0.09, opH, 0.17); bar(0, opH, 0, opW + 0.1, 0.11, 0.17);
     // side doors down the hall: the plant continues
+    const hallDoorMat = new THREE.MeshStandardMaterial({ color: 0x0b0c10, roughness: 0.95 });
     for (const z of [-1.15, -2.30]) for (const sx of [-1, 1]) {
-      const dr = new THREE.Mesh(new THREE.PlaneGeometry(0.58, 1.55), new THREE.MeshStandardMaterial({ color: 0x0b0c10, roughness: 0.95 }));
+      const dr = new THREE.Mesh(new THREE.PlaneGeometry(0.58, 1.55), hallDoorMat);
       dr.position.set(sx * (opW / 2 - 0.012), 0.86, z); dr.rotation.y = sx * Math.PI / 2; grp.add(dr);
       const fr2 = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.6, 0.05), this.metal);
       fr2.position.set(sx * (opW / 2 - 0.03), 0.88, z + 0.31); grp.add(fr2);
@@ -224,8 +227,9 @@ export class Room {
     const rim = new THREE.Mesh(new THREE.TorusGeometry(0.175, 0.016, 8, 32), this.metal); rim.position.z = 0.035; grp.add(rim);
     const body = new THREE.Mesh(new THREE.CylinderGeometry(0.175, 0.175, 0.06, 24), this.metal);
     body.rotation.x = Math.PI / 2; grp.add(body);
-    const mk = (len, wid, col) => { const m = new THREE.Mesh(new THREE.BoxGeometry(wid, len, 0.008), new THREE.MeshStandardMaterial({ color: col, roughness: 0.5 })); m.geometry.translate(0, len / 2, 0); m.position.z = 0.045; grp.add(m); return m; };
-    this.clock = { grp, hour: mk(0.085, 0.017, 0x14110e), minute: mk(0.135, 0.011, 0x14110e) };
+    const handMat = new THREE.MeshStandardMaterial({ color: 0x14110e, roughness: 0.5 });
+    const mk = (len, wid) => { const m = new THREE.Mesh(new THREE.BoxGeometry(wid, len, 0.008), handMat); m.geometry.translate(0, len / 2, 0); m.position.z = 0.045; grp.add(m); return m; };
+    this.clock = { grp, hour: mk(0.085, 0.017), minute: mk(0.135, 0.011) };
     this.setClock(0);
   }
 
@@ -258,6 +262,62 @@ export class Room {
       const l = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.78, 0.05), this.metal); l.position.set(lx, 0.39, lz); l.castShadow = true; this.group.add(l);
     }
 
+    // ---- instanced hardware: hundreds of bolts/seams for ONE draw call ----
+    const boltGeo = new THREE.CylinderGeometry(0.011, 0.013, 0.012, 6);
+    const bolts = [];
+    const pushBolt = (x, y, z, rx, ry) => bolts.push([x, y, z, rx, ry]);
+    // bolt rows along the wall panel seams
+    for (let i = 0; i < 7; i++) {
+      const z = -1.35 + i * 0.45;
+      pushBolt(-w + 0.012, 0.16, z, 0, Math.PI / 2); pushBolt(-w + 0.012, 1.62, z, 0, Math.PI / 2);
+      pushBolt(w - 0.012, 0.16, z, 0, -Math.PI / 2); pushBolt(w - 0.012, 1.62, z, 0, -Math.PI / 2);
+    }
+    for (let i = 0; i < 6; i++) {
+      const x = -1.25 + i * 0.5;
+      pushBolt(x, 0.16, -d + 0.012, Math.PI / 2, 0); pushBolt(x, 2.28, -d + 0.012, Math.PI / 2, 0);
+    }
+    const boltMesh = new THREE.InstancedMesh(boltGeo, this.metal, bolts.length);
+    boltMesh.castShadow = true; boltMesh.receiveShadow = true;
+    bolts.forEach(([x, y, z, rx, ry], i) => {
+      m.compose(new V3(x, y, z), q.setFromEuler(new THREE.Euler(rx, ry, 0)), new V3(1, 1, 1));
+      boltMesh.setMatrixAt(i, m);
+    });
+    boltMesh.instanceMatrix.needsUpdate = true; this.group.add(boltMesh);
+
+    // horizontal panel seams (recessed strips) - one instanced batch
+    const seamGeo = new THREE.BoxGeometry(0.02, 0.022, CONFIG.room.D - 0.05);
+    const seams = new THREE.InstancedMesh(seamGeo, this.rust, 4);
+    seams.receiveShadow = true;
+    [[-w + 0.011, 1.62, 0, 0], [w - 0.011, 1.62, 0, 0], [-w + 0.011, 0.16, 0, 0], [w - 0.011, 0.16, 0, 0]]
+      .forEach(([x, y, z], i) => { m.compose(new V3(x, y, z), q.identity(), new V3(1, 1, 1)); seams.setMatrixAt(i, m); });
+    seams.instanceMatrix.needsUpdate = true; this.group.add(seams);
+
+    // pipe brackets clamping the ceiling runs
+    const brGeo = new THREE.TorusGeometry(0.062, 0.012, 5, 10, Math.PI);
+    const brackets = new THREE.InstancedMesh(brGeo, this.metal, 9);
+    brackets.castShadow = true;
+    let bi = 0;
+    for (const px of [-1.15, 1.05, 1.25]) for (const pz of [-1.1, 0, 1.1]) {
+      m.compose(new V3(px, h - 0.13, pz), q.setFromEuler(new THREE.Euler(0, 0, 0)), new V3(1, 1, 1));
+      brackets.setMatrixAt(bi++, m);
+    }
+    brackets.instanceMatrix.needsUpdate = true; this.group.add(brackets);
+
+    // conduit running down the corner + a junction box (reads as a real build)
+    const conduit = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 1.9, 8), this.metal);
+    conduit.position.set(-w + 0.06, 1.2, -d + 0.09); conduit.castShadow = true; this.group.add(conduit);
+    const jbox = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.18, 0.08), this.metal);
+    jbox.position.set(-w + 0.07, 0.5, -d + 0.1); jbox.castShadow = true; this.group.add(jbox);
+
+    // skirting so walls meet the floor with a real edge, not a seam
+    const skirtGeo = new THREE.BoxGeometry(0.03, 0.09, CONFIG.room.D);
+    const skirt = new THREE.InstancedMesh(skirtGeo, this.rust, 2);
+    skirt.receiveShadow = true;
+    [[-w + 0.015, 0.045, 0], [w - 0.015, 0.045, 0]].forEach(([x, y, z], i) => {
+      m.compose(new V3(x, y, z), q.identity(), new V3(1, 1, 1)); skirt.setMatrixAt(i, m);
+    });
+    skirt.instanceMatrix.needsUpdate = true; this.group.add(skirt);
+
     // hazard stripe on the floor at the corridor threshold (scale + reading)
     const stripe = new THREE.Mesh(new THREE.PlaneGeometry(1.34, 0.13), new THREE.MeshBasicMaterial({ color: 0x2b2410, toneMapped: false }));
     stripe.rotation.x = -Math.PI / 2; stripe.position.set(0, 0.006, -1.15); this.group.add(stripe);
@@ -284,9 +344,13 @@ export class Room {
   }
 
   // ---- animated state ----------------------------------------------------
-  setVent(v) { if (this.vent) this.vent.target = v; }
-  setHatch(v) { if (this.hatch) this.hatch.target = v; }
-  setDoor(v) { if (this.door) this.door.target = v; }
+  // Opening an entry point starts with a TELL: a small, specific movement that
+  // warns you a beat before anything comes through. Each one behaves differently
+  // so you learn to read the room by its details.
+  _arm(o, v, tell) { if (!o) return; if (v && !o.target) o.tellT = tell; o.target = v; }
+  setVent(v) { this._arm(this.vent, v, 0.75); }     // grille rattles in its frame
+  setHatch(v) { this._arm(this.hatch, v, 0.95); }   // grate thumps from below
+  setDoor(v) { this._arm(this.door, v, 0.85); }     // creeps open a few centimetres
 
   /** frac 0..1 across the night -> clock hands (00:00 -> 06:00). */
   setClock(frac) {
@@ -297,12 +361,55 @@ export class Room {
   }
 
   update(dt) {
-    const k = Math.min(1, dt * 3);
-    if (this.vent) { this.vent.open += (this.vent.target - this.vent.open) * k; this.vent.cover.rotation.x = -this.vent.open * 1.5; }
-    if (this.hatch) { this.hatch.open += (this.hatch.target - this.hatch.open) * k; this.hatch.lid.rotation.x = -this.hatch.open * 1.15; }
-    if (this.door) {
-      this.door.open += (this.door.target - this.door.open) * k * 0.7;
-      this.door.pivot.rotation.y = this.door.base - this.door.open * 0.75;
+    this._t = (this._t || 0) + dt;
+    const t = this._t, k = Math.min(1, dt * 3);
+
+    // VENT: the grille buzzes and chatters in its frame, then swings wide.
+    const V = this.vent;
+    if (V) {
+      if (V.tellT > 0) {
+        V.tellT -= dt;
+        V.open += (0.05 - V.open) * k;
+        const buzz = Math.min(1, V.tellT / 0.75);
+        V.cover.rotation.x = -V.open * 1.5 + Math.sin(t * 74) * 0.05 * buzz;
+        V.cover.position.x = Math.sin(t * 91) * 0.006 * buzz;
+      } else {
+        V.open += (V.target - V.open) * k;
+        V.cover.rotation.x = -V.open * 1.5;
+        V.cover.position.x *= 0.85;
+      }
+    }
+
+    // HATCH: something shoves it from underneath — it lifts and drops, twice,
+    // before it finally slides aside.
+    const H = this.hatch;
+    if (H) {
+      if (H.tellT > 0) {
+        H.tellT -= dt;
+        const bump = Math.max(0, Math.sin(t * 15)) * Math.min(1, H.tellT / 0.95);
+        H.lid.position.y = 0.02 + bump * 0.045;
+        H.lid.rotation.z = bump * 0.05;
+        H.open += (0.03 - H.open) * k;
+      } else {
+        H.open += (H.target - H.open) * k;
+        H.lid.position.y += (0.02 - H.lid.position.y) * k;
+        H.lid.rotation.z *= 0.86;
+      }
+      H.lid.rotation.x = -H.open * 1.15;
+      H.lid.position.z = -0.4 + H.open * 0.30;      // slides aside as it opens
+    }
+
+    // DOOR: creeps open a couple of centimetres and stops. Then it moves again.
+    const D = this.door;
+    if (D) {
+      if (D.tellT > 0) {
+        D.tellT -= dt;
+        D.open += (0.14 - D.open) * k * 0.8;
+        D.pivot.rotation.y = D.base - D.open * 0.75 + Math.sin(t * 5.5) * 0.004;
+      } else {
+        D.open += (D.target - D.open) * k * 0.7;
+        D.pivot.rotation.y = D.base - D.open * 0.75;
+      }
     }
   }
 }

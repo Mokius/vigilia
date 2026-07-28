@@ -24,6 +24,7 @@ export class Game {
     this.timer = 0;
     this.scareFX = 0;
     this.shake = 0;
+    this.flash = 0;
     this._dwell = {};
     this._wire();
   }
@@ -40,6 +41,8 @@ export class Game {
       else a.knock(pan, 0.6);
     });
     this.bus.on('banish', ({ pan }) => { a.scrape(pan, 0.25); a.boom(pan); });
+    // every snap between stations lands with a hard impact
+    this.bus.on('step', ({ pan, p }) => a.lunge(pan, p));
   }
 
   init() { this.crt.showMenu(); this.state = GState.MENU; }
@@ -130,9 +133,20 @@ export class Game {
   _onScare(scared) {
     this.state = GState.SCARE;
     this.shake = 1;
+    this.flash = 1;                       // blown-out frame on the attack
     this.audio.setTension(0);
-    this.audio.scream(scared.type.scream);
+    // The audio returns its own timing; the visuals are driven from it so image
+    // and sound are one event rather than two things that merely overlap.
+    this._scareAudio = this.audio.scream(scared.type.scream) || { attack: 0.004, sustain: 0.42, total: 0.76 };
     this.onPointerUnlock && this.onPointerUnlock();
+    // kill every other light: for the duration there is only the thing's face
+    if (this.room.lights) {
+      this._savedLights = { fluo: this.room.lights.fluo.intensity, emg: this.room.lights.emergency.intensity };
+      this.room.lights.fluo.intensity = 0;
+      this.room.lights.emergency.intensity = 0.4;
+    }
+    this.flashlight.on = true;
+    this._flSaved = this.flashlight.spot.intensity;
 
     // Bring the actual creature to the player's face, on whichever screen it
     // came from, and let its own attack clip play. No 2D overlay anywhere.
@@ -154,19 +168,35 @@ export class Game {
   tickScare(dt) {
     if (this.state !== GState.SCARE) return;
     this._scareT += dt;
+    const T = this._scareAudio || { attack: 0.004, sustain: 0.42, total: 0.76 };
+    const t = this._scareT;
+
+    // FLASH: hard white on the attack, gone in ~110 ms so it reads as a strike
+    this.flash = t < 0.02 ? 1 : Math.max(0, 1 - (t - 0.02) / 0.11);
+    // SHAKE: violent while the scream sustains, then settles
+    const sustainEnd = T.attack + T.sustain;
+    this.shake = t < sustainEnd ? Math.max(0.55, 1 - t / (sustainEnd * 1.6)) : Math.max(0, this.shake - dt * 2.2);
+
     const e = this._scareEnemy;
     if (e) {
       e.animate(dt);
-      // lunge a few centimetres closer, twitching
+      // it keeps pressing in, jittering, for as long as the scream holds
       const d = this.eye.clone().sub(e.group.position); d.y = 0;
-      if (d.length() > 0.42) e.group.position.addScaledVector(d.normalize(), dt * 0.35);
-      e.group.rotation.z = Math.sin(this._scareT * 47) * 0.05;
-      if (Math.random() < 0.2) this.shake = Math.max(this.shake, 0.75);
+      if (d.length() > 0.40) e.group.position.addScaledVector(d.normalize(), dt * (t < sustainEnd ? 0.55 : 0.1));
+      e.group.rotation.z = Math.sin(t * 61) * 0.06 * (t < sustainEnd ? 1 : 0.2);
+      e.group.position.y += Math.sin(t * 83) * 0.006;
+      // strobe the beam so the face is lit in stutters, never cleanly
+      this.flashlight.spot.intensity = (this._flSaved || 55) * (t < sustainEnd ? (Math.random() < 0.75 ? 1.9 : 0.25) : 1);
     }
     if (this._scareT > 1.7) {
       const left = this.pickups.remaining;      // read BEFORE clearing the field
       this.manager.stop(); this.pickups.clear();
       this._scareEnemy = null;
+      this.flash = 0;
+      if (this._savedLights && this.room.lights) {
+        this.room.lights.emergency.intensity = this._savedLights.emg;
+      }
+      if (this._flSaved) this.flashlight.spot.intensity = this._flSaved;
       this._lastWin = false;
       this.state = GState.END;
       this.crt.showResult(false, this.night, left);

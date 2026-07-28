@@ -17,6 +17,10 @@ function ringTexture() {
   return { canvas: c, ctx: c.getContext('2d'), tex: new THREE.CanvasTexture(c) };
 }
 
+// Shared across every cell: 6 identical materials were 6 extra shader programs.
+let CAP_MAT = null;
+const capMat = () => (CAP_MAT || (CAP_MAT = new THREE.MeshStandardMaterial({ color: 0x8a8f96, roughness: 0.4, metalness: 0.8 })));
+
 class Battery {
   constructor(spot, metal) {
     this.pos = spot.pos.clone();
@@ -29,8 +33,7 @@ class Battery {
     const body = new THREE.Mesh(new THREE.BoxGeometry(0.11, 0.17, 0.08),
       metal || new THREE.MeshStandardMaterial({ color: 0x2c2f34, roughness: 0.6, metalness: 0.5 }));
     body.castShadow = body.receiveShadow = true; g.add(body);
-    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.02, 8),
-      new THREE.MeshStandardMaterial({ color: 0x8a8f96, roughness: 0.4, metalness: 0.8 }));
+    const cap = new THREE.Mesh(new THREE.CylinderGeometry(0.018, 0.018, 0.02, 8), capMat());
     cap.position.y = 0.095; cap.castShadow = true; g.add(cap);
 
     this.glowMat = new THREE.MeshBasicMaterial({ color: 0x27ff5a, toneMapped: false });
@@ -40,8 +43,6 @@ class Battery {
       const p = new THREE.Mesh(new THREE.PlaneGeometry(0.062, 0.008), this.glowMat);
       p.position.set(0, -0.015 - i * 0.018, 0.041); g.add(p);
     }
-    this.halo = new THREE.PointLight(0x1aff55, 0.5, 1.1, 2);
-    this.halo.position.set(0, 0.02, 0.1); g.add(this.halo);
 
     this.spriteMat = new THREE.SpriteMaterial({ color: 0x1aff55, transparent: true, opacity: 0.45, depthWrite: false, blending: THREE.AdditiveBlending, toneMapped: false });
     const s = new THREE.Sprite(this.spriteMat); s.scale.setScalar(0.18); s.position.set(0, 0.02, 0.05); g.add(s);
@@ -54,7 +55,7 @@ class Battery {
       this.group.position.y = this.pos.y + Math.min(0.38, this.anim * 0.8);
       this.group.rotation.y += dt * 8;
       const f = clamp(1 - this.anim / 0.7, 0, 1);
-      this.spriteMat.opacity = 0.5 * f; this.halo.intensity = 1.8 * f;
+      this.spriteMat.opacity = 0.5 * f;
       this.group.scale.setScalar(0.55 + 0.45 * f);
       if (this.anim > 0.7) this.group.visible = false;
       return null;
@@ -78,8 +79,8 @@ class Battery {
     const pulse = 0.55 + 0.45 * Math.sin(this.t * (5 + f * 26));
     const bright = 0.3 + f * 0.7;
     this.glowMat.color.setRGB(0.1 * bright, bright * (0.55 + 0.45 * pulse), 0.2 * bright);
-    this.halo.intensity = 0.4 + f * 1.8 * pulse;
     this.spriteMat.opacity = 0.3 + f * 0.55;
+    this.glow = 0.4 + f * 1.8 * pulse;
     this.group.scale.setScalar(1 + f * 0.16);
     this.group.position.y = this.pos.y + f * 0.02;
     return out;
@@ -108,6 +109,10 @@ export class PickupField {
     this.ring.scale.setScalar(0.42); this.ring.visible = false;
     this.scene.add(this.ring);
     this._ringFrac = -1;
+    // ONE shared halo that travels to whichever cell matters. Six point lights
+    // (one per cell) were being shaded by every material in the room.
+    this.light = new THREE.PointLight(0x1aff55, 0, 1.7, 2);
+    this.scene.add(this.light);
   }
 
   _drawRing(frac) {
@@ -166,6 +171,22 @@ export class PickupField {
       if (r === 'collected') out.push({ kind: 'collected', pan: b.pan });
       else if (r === 'tick') out.push({ kind: 'tick', pan: b.pan, frac: b.dwell / D.dwell });
     }
+
+    // Move the single shared halo to the cell that matters: the one being
+    // charged, else the nearest to the beam so cells still read in the dark.
+    let host = best;
+    if (!host) {
+      let bd = Infinity;
+      for (const b of this.items) {
+        if (b.taken) continue;
+        const d = flashlight.aimAngle(b.pos);
+        if (d < bd) { bd = d; host = b; }
+      }
+    }
+    if (host) {
+      this.light.position.copy(host.pos).add(new THREE.Vector3(0, 0.04, 0.06));
+      this.light.intensity += ((host.glow || 0.45) - this.light.intensity) * Math.min(1, dt * 8);
+    } else this.light.intensity *= 0.9;
 
     // park the arc on the active cell
     if (best && best.dwell > 0.01) {

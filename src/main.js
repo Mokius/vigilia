@@ -167,7 +167,7 @@ function start() {
     // 60 Hz is wasted work — ~30 Hz is indistinguishable here.
     renderer.shadowMap.needsUpdate = (frame % (CONFIG.render.shadowEveryNthFrame || 1)) === 0;
     rig.render(renderer, scene, null);
-    if (post) post.process(t, game.scareFX, game.shake);
+    if (post) post.process(t, game.scareFX, game.shake, game.flash);
 
     requestAnimationFrame(loop);
   }
