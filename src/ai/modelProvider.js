@@ -109,7 +109,7 @@ export function measureHeight(root) {
  * albedo so a textured realistic model reads as something wet in the dark
  * (we TINT rather than replace, to keep the detail we paid for).
  */
-export function prepareModel(root, targetHeight, { darken = 0.26, roughness = 0.94 } = {}) {
+export function prepareModel(root, targetHeight, { darken = 0.15, roughness = 0.97 } = {}) {
   const m = measureHeight(root);
   if (m) {
     const s = targetHeight / m.height;
@@ -135,7 +135,9 @@ export function prepareModel(root, targetHeight, { darken = 0.26, roughness = 0.
       if (mat.envMapIntensity !== undefined) mat.envMapIntensity = 0.15;
       if ('sheen' in mat) mat.sheen = 0;
       if ('clearcoat' in mat) mat.clearcoat = 0;
-      if ('specularIntensity' in mat) mat.specularIntensity = 0.15;
+      if ('specularIntensity' in mat) mat.specularIntensity = 0.06;
+      if ('reflectivity' in mat) mat.reflectivity = 0.05;
+      if (mat.normalScale) mat.normalScale.multiplyScalar(0.8);   // calmer highlights
       mat.needsUpdate = true;
     }
   });

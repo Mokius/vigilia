@@ -29,6 +29,11 @@ export class Game {
     this._dwell = {};
     // Every physical state change of an access reports its own mechanical sound.
     this.room.onAccessSound = (kind, step, pan, closing) => this.audio.accessSound(kind, step, pan, closing);
+    // A dedicated lamp that only exists to light the creature's face during a
+    // jumpscare. A scare you cannot SEE is not a scare.
+    this.scareLight = new THREE.PointLight(0xffe7cf, 0, 3.0, 2);
+    this.scareLight.position.copy(this.eye);
+    this.scene.add(this.scareLight);
     this._wire();
   }
 
@@ -184,27 +189,31 @@ export class Game {
     // and sound are one event rather than two things that merely overlap.
     this._scareAudio = this.audio.scream(scared.type.scream) || { attack: 0.004, sustain: 0.95, total: 1.55 };
     this.onPointerUnlock && this.onPointerUnlock();
-    // kill every other light: for the duration there is only the thing's face
-    if (this.room.lights) {
-      this._savedLights = { fluo: this.room.lights.fluo.intensity, emg: this.room.lights.emergency.intensity };
-      this.room.lights.fluo.intensity = 0;
-      this.room.lights.emergency.intensity = 0.4;
-    }
+    // ---- LIGHTS: the opposite of hiding. Blast the room so the face is
+    // unmistakable, and set the fire alarm off.
+    this.room.alarmOverride = true;
     this.flashlight.on = true;
     this._flSaved = this.flashlight.spot.intensity;
 
-    // Bring the actual creature to the player's face, on whichever screen it
-    // came from, and let its own attack clip play. No 2D overlay anywhere.
+    // ---- STAGE THE FACE: dead ahead, so it lands CENTRED on the front screen,
+    // pushed right up to the player with its head exactly at eye level. This is
+    // the FNAF framing: a face filling the view, not a body in the dark.
     const e = scared.enemy;
     if (e && e.group) {
-      const dir = e.group.position.clone().sub(this.eye); dir.y = 0;
-      if (dir.lengthSq() < 1e-4) dir.set(0, 0, -1);
-      dir.normalize();
-      const p = this.eye.clone().addScaledVector(dir, 0.62);
-      p.y = Math.max(0, this.eye.y - (e.bodyHeight || 1.8) * 0.82);
-      e.group.position.copy(p);
-      e.group.lookAt(this.eye.x, e.group.position.y, this.eye.z);
-      e.group.scale.setScalar(1.12);
+      e.group.scale.setScalar(1.4);
+      e.group.position.set(this.eye.x, 0, this.eye.z - 1.15);
+      e.group.lookAt(this.eye.x, e.group.position.y, this.eye.z + 1);
+      e.group.updateMatrixWorld(true);
+      // measure where its head actually ended up and lift it to eye height —
+      // works for any rig, procedural or GLB, whatever its proportions
+      const hw = e.headWorld;
+      e.group.position.y += (this.eye.y - hw.y);
+      e.group.updateMatrixWorld(true);
+      e._scarePose = true;
+      if (e._playIntent) e._playIntent('scream', true);
+      // light aimed at the face from just in front of the player
+      this.scareLight.position.set(this.eye.x, this.eye.y + 0.14, this.eye.z - 0.38);
+      this.scareLight.intensity = 6.5;
       this._scareEnemy = e;
     }
     this._scareT = 0;
@@ -225,22 +234,31 @@ export class Game {
     const e = this._scareEnemy;
     if (e) {
       e.animate(dt);
-      // it keeps pressing in, jittering, for as long as the scream holds
-      const d = this.eye.clone().sub(e.group.position); d.y = 0;
-      if (d.length() > 0.40) e.group.position.addScaledVector(d.normalize(), dt * (t < sustainEnd ? 0.55 : 0.1));
-      e.group.rotation.z = Math.sin(t * 61) * 0.06 * (t < sustainEnd ? 1 : 0.2);
-      e.group.position.y += Math.sin(t * 83) * 0.006;
+      // Keep the head locked at eye level and centred; only jitter around it, so
+      // the face never drifts off the front screen.
+      const hw = e.headWorld;
+      e.group.position.y += (this.eye.y - hw.y) * Math.min(1, dt * 12);
+      e.group.position.x = this.eye.x + Math.sin(t * 53) * 0.012;
+      e.group.position.z = (this.eye.z - 1.15) + Math.sin(t * 37) * 0.02
+        + (t < sustainEnd ? 0.16 * Math.min(1, t / sustainEnd) : 0.16);   // presses in
+      e.group.rotation.z = Math.sin(t * 61) * 0.05 * (t < sustainEnd ? 1 : 0.2);
       // strobe the beam so the face is lit in stutters, never cleanly
-      this.flashlight.spot.intensity = (this._flSaved || 55) * (t < sustainEnd ? (Math.random() < 0.75 ? 1.9 : 0.25) : 1);
+      // Stutter, don't sear: the face is lit in bursts but never clips to white.
+      // The torch drops right out: the scare is lit by its own lamp and the
+      // alarm, exactly like a FNAF cut. Keeps the face readable, never white.
+      this.flashlight.spot.intensity = (this._flSaved || 46) * 0.18;
+      this.scareLight.intensity = t < sustainEnd
+        ? 6.5 * (Math.random() < 0.85 ? 1 : 0.35)
+        : Math.max(0, 6.5 * (1 - (t - sustainEnd) / 0.5));
     }
     if (this._scareT > 2.25) {
       const left = this.pickups.remaining;      // read BEFORE clearing the field
       this.manager.stop(); this.pickups.clear();
       this._scareEnemy = null;
       this.flash = 0;
-      if (this._savedLights && this.room.lights) {
-        this.room.lights.emergency.intensity = this._savedLights.emg;
-      }
+      this.room.alarmOverride = false;
+      this.scareLight.intensity = 0;
+      if (this._scareEnemy && this._scareEnemy.group) this._scareEnemy.group.scale.setScalar(1);
       if (this._flSaved) this.flashlight.spot.intensity = this._flSaved;
       this._lastWin = false;
       this.state = GState.END;

@@ -44,7 +44,12 @@ function proceduralBody(eyeColor) {
   const t = buildTextures().skin;
   const map = t.map.clone(); map.needsUpdate = true;
   const nrm = t.normalMap.clone(); nrm.needsUpdate = true;
-  const m = new THREE.MeshStandardMaterial({ map, normalMap: nrm, color: 0x2e1f1d, roughness: 0.85, metalness: 0.05 });
+  // Dead matte. Any gloss at all and the beam turns it into a shiny prop
+  // instead of something standing in the room.
+  const m = new THREE.MeshStandardMaterial({
+    map, normalMap: nrm, color: 0x241a18, roughness: 0.97, metalness: 0.0,
+    normalScale: new THREE.Vector2(0.9, 0.9),
+  });
   const g = new THREE.Group();
   const box = (w, h, d) => new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
   for (const sx of [-1, 1]) { const l = box(0.075, 0.92, 0.09); l.position.set(sx * 0.085, 0.46, 0); g.add(l); }

@@ -154,6 +154,72 @@ export class Room {
     glow.position.set(0, opH * 0.48, -L + 0.03); grp.add(glow);
     const exit = new THREE.PointLight(0x771212, 1.6, 3.6, 2);
     exit.position.set(0, 1.15, -L + 0.35); grp.add(exit);
+    // ---- 11. SERVICE PASSAGE DRESSING ------------------------------------
+    // The hall read as an empty tube with a computer parked in it. These are the
+    // things that would actually line a plant corridor.
+    const m2 = new THREE.Matrix4(), q2 = new THREE.Quaternion();
+    // pipe runs along both upper corners, all the way down
+    for (const sx of [-1, 1]) {
+      for (const [r0, yy] of [[0.045, opH - 0.16], [0.032, opH - 0.30]]) {
+        const pipe = new THREE.Mesh(new THREE.CylinderGeometry(r0, r0, L - 0.1, 8), this.rust);
+        pipe.rotation.x = Math.PI / 2;
+        pipe.position.set(sx * (opW / 2 - 0.09), yy, -L / 2);
+        pipe.castShadow = true; grp.add(pipe);
+      }
+    }
+    // clamps holding those pipes, instanced
+    const clamp2 = new THREE.InstancedMesh(new THREE.TorusGeometry(0.05, 0.009, 4, 8), this.steel, 12);
+    let ci = 0;
+    for (const sx of [-1, 1]) for (let k = 0; k < 6; k++) {
+      m2.compose(new V3(sx * (opW / 2 - 0.09), opH - 0.16, -0.35 - k * 0.52), q2.identity(), new V3(1, 1, 1));
+      clamp2.setMatrixAt(ci++, m2);
+    }
+    clamp2.instanceMatrix.needsUpdate = true; grp.add(clamp2);
+    // a cable tray on the ceiling of the hall with instanced rungs
+    const trayRail = new THREE.InstancedMesh(new THREE.BoxGeometry(0.016, 0.04, L - 0.1), this.metal, 2);
+    [[-0.1], [0.1]].forEach(([x], i) => { m2.compose(new V3(x, opH - 0.05, -L / 2), q2.identity(), new V3(1, 1, 1)); trayRail.setMatrixAt(i, m2); });
+    trayRail.instanceMatrix.needsUpdate = true; grp.add(trayRail);
+    const trayRung = new THREE.InstancedMesh(new THREE.BoxGeometry(0.22, 0.008, 0.022), this.metal, 11);
+    for (let k = 0; k < 11; k++) { m2.compose(new V3(0, opH - 0.068, -0.3 - k * 0.26), q2.identity(), new V3(1, 1, 1)); trayRung.setMatrixAt(k, m2); }
+    trayRung.instanceMatrix.needsUpdate = true; grp.add(trayRung);
+    // wall boxes / junction boxes down the hall
+    const jb = new THREE.InstancedMesh(new THREE.BoxGeometry(0.06, 0.16, 0.12), this.equip, 4);
+    [[-1, -0.75], [1, -1.6], [-1, -2.6], [1, -3.05]].forEach(([sx, z], i) => {
+      m2.compose(new V3(sx * (opW / 2 - 0.04), 1.35, z), q2.identity(), new V3(1, 1, 1));
+      jb.setMatrixAt(i, m2);
+    });
+    jb.instanceMatrix.needsUpdate = true; grp.add(jb);
+    // a safety rail part-way down: reads as depth and as a real workplace
+    const railGrp = new THREE.Group(); railGrp.position.set(0, 0, -1.95); grp.add(railGrp);
+    for (const yy of [0.55, 0.92]) {
+      const bar2 = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.62, 8), this.steel);
+      bar2.rotation.z = Math.PI / 2; bar2.position.set(-opW / 2 + 0.33, yy, 0); bar2.castShadow = true; railGrp.add(bar2);
+    }
+    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.95, 8), this.steel);
+    post.position.set(-opW / 2 + 0.04, 0.475, 0); post.castShadow = true; railGrp.add(post);
+    const post2 = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.95, 8), this.steel);
+    post2.position.set(-opW / 2 + 0.62, 0.475, 0); post2.castShadow = true; railGrp.add(post2);
+    // a stacked pallet and a drum against the right wall of the hall
+    const pallet = new THREE.Group(); pallet.position.set(opW / 2 - 0.28, 0.06, -2.55); grp.add(pallet);
+    for (let k = 0; k < 4; k++) {
+      const board = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.022, 0.075), this.timber);
+      board.position.set(0, 0.05, -0.17 + k * 0.115); board.castShadow = true; pallet.add(board);
+    }
+    for (const bz of [-0.16, 0, 0.16]) {
+      const bear = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.045, 0.05), this.timber);
+      bear.position.set(0, 0.022, bz); pallet.add(bear);
+    }
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.52, 14), this.rust);
+    drum.position.set(opW / 2 - 0.26, 0.26, -1.25); drum.castShadow = drum.receiveShadow = true; grp.add(drum);
+    for (const ry2 of [0.16, 0.36]) {
+      const rib = new THREE.Mesh(new THREE.TorusGeometry(0.163, 0.012, 5, 14), this.rust);
+      rib.rotation.x = Math.PI / 2; rib.position.set(opW / 2 - 0.26, ry2, -1.25); grp.add(rib);
+    }
+    // floor grating panel further down: breaks the flat floor of the hall
+    const grate = new THREE.InstancedMesh(new THREE.BoxGeometry(0.62, 0.012, 0.03), this.steel, 9);
+    for (let k = 0; k < 9; k++) { m2.compose(new V3(0, 0.012, -1.5 - k * 0.06), q2.identity(), new V3(1, 1, 1)); grate.setMatrixAt(k, m2); }
+    grate.instanceMatrix.needsUpdate = true; grp.add(grate);
+
     this.corridor = grp;
   }
 
@@ -344,7 +410,7 @@ export class Room {
 
     // left-wall shelving unit (breaks the wall, makes shadow S4)
     const shelf = new THREE.Group(); shelf.position.set(-1.34, 0, -0.85); this.group.add(shelf);
-    for (let i = 0; i < 3; i++) { const s = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.03, 0.9), this.metal); s.position.set(0, 0.35 + i * 0.3, 0); s.castShadow = s.receiveShadow = true; shelf.add(s); }
+    for (let i = 0; i < 3; i++) { const s = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.03, 0.9), this.painted); s.position.set(0, 0.35 + i * 0.3, 0); s.castShadow = s.receiveShadow = true; shelf.add(s); }
     for (const sz of [-0.43, 0.43]) { const p = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.98, 0.04), this.metal); p.position.set(0, 0.49, sz); p.castShadow = true; shelf.add(p); }
 
     // crates (right-back) and desk (left-back)
@@ -589,7 +655,14 @@ export class Room {
 
     // --- failing alarm beacon: irregular strobe attempts + slow colour drift --
     const L = this.lights;
-    if (L && L.emergency) {
+    // During a jumpscare the game owns every light in the room, so skip the
+    // normal beacon behaviour instead of fighting it.
+    if (L && L.emergency && this.alarmOverride) {
+      const st = Math.sin(this._t * 34) > -0.25 ? 1 : 0.25;
+      L.emergency.intensity = 7.5 * st;
+      L.emergency.color.setHSL(0.015, 0.9, 0.42);
+      if (L.emgDome) L.emgDome.material.color.setHSL(0.015, 1.0, 0.36 * st);
+    } else if (L && L.emergency) {
       this._emgT -= dt;
       if (this._emgT <= 0) {
         // never a fixed rhythm: sometimes a stutter, sometimes a long sulk

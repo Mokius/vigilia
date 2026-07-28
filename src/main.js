@@ -102,6 +102,8 @@ function start() {
   // Stuttering fluorescent: long darkness, sudden buzzing reveals.
   let fluoT = 0, fluoLevel = 0;
   function flicker(dt) {
+    // the jumpscare drives the lights itself
+    if (room.alarmOverride) { room.lights.fluo.intensity = 9; return; }
     fluoT -= dt;
     if (fluoT <= 0) {
       if (Math.random() < 0.5) { fluoLevel = 18 + Math.random() * 24; fluoT = 0.03 + Math.random() * 0.1; }
