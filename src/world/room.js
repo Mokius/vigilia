@@ -252,7 +252,7 @@ export class Room {
     //   surround= rough painted concrete lintel      -> matte, kills reflection
     //   sill    = heavily worn, deep normals         -> broken, gritty
     const steel = new THREE.MeshStandardMaterial({
-      color: 0x8f959c, roughness: 0.28, metalness: 0.92,
+      color: 0x8f959c, roughness: 0.42, metalness: 0.92,
       map: this.metal.map, normalMap: this.metal.normalMap,
       normalScale: new THREE.Vector2(0.5, 0.5),
     });
