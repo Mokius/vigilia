@@ -32,6 +32,7 @@ export class Room {
   constructor() {
     this.group = new THREE.Group();
     this.pickupSpots = [];
+    this.alarmOverride = false;   // the jumpscare seizes the room lighting
     this._build();
   }
 
