@@ -76,7 +76,10 @@ export function addSignage(room) {
   // and the two signs then flank it symmetrically.
   sign.geometry.dispose();
   sign.geometry = new THREE.PlaneGeometry(0.8, 0.2);
-  sign.position.set(1.02, 1.74, -d + 0.035); g.add(sign);
+  sign.position.set(1.02, 1.74, -d + 0.045); g.add(sign);
+  // stand it off the wall on a bracket: a flat decal read as a sticker
+  const backer = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.24, 0.03), room.equip);
+  backer.position.set(1.02, 1.74, -d + 0.022); backer.castShadow = true; g.add(backer);
 
   // FRONT beside the corridor: the exit arrow.
   const exitSign = paintedPlate(0.44, 0.2, (c, W, H) => {
@@ -89,7 +92,12 @@ export function addSignage(room) {
     c.beginPath(); c.moveTo(W * 0.95, H * 0.52); c.lineTo(W * 0.82, H * 0.28);
     c.lineTo(W * 0.82, H * 0.76); c.closePath(); c.fillStyle = '#8fe6a6'; c.fill();
   }, { px: 256 });
-  exitSign.position.set(-1.0, 1.74, -d + 0.035); g.add(exitSign);
+  exitSign.position.set(-1.0, 1.74, -d + 0.05); g.add(exitSign);
+  const exBox = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.24, 0.05), room.equip);
+  exBox.position.set(-1.0, 1.74, -d + 0.026); exBox.castShadow = true; g.add(exBox);
+  // it is a lit sign, so give it its own faint glow
+  const exLamp = new THREE.PointLight(0x3ad07a, 0.5, 1.1, 2);
+  exLamp.position.set(-1.0, 1.74, -d + 0.16); g.add(exLamp);
 
   // FRONT low, next to the vent: labels the duct so it reads as an air path.
   const ventTag = paintedPlate(0.38, 0.11, (c, W, H) => {
@@ -178,6 +186,83 @@ export function addSignage(room) {
     }
   }, { px: 256 });
   chev.rotation.x = -Math.PI / 2; chev.position.set(0, 0.006, -1.18); g.add(chev);
+}
+
+// ---------------------------------------------------------------------------
+/**
+ * A panel-mounted analogue charge meter for the lamp, bolted to the front-right
+ * pier. It is on the FRONT surface, so in the cube it is permanently in view —
+ * the player can check power at a glance without any screen furniture.
+ */
+export function addBatteryGauge(room) {
+  const d = CONFIG.room.D / 2;
+  const F = CONFIG.fonts;
+  const grp = new THREE.Group();
+  grp.position.set(1.03, 1.26, -d + 0.07);
+  room.group.add(grp);
+
+  // housing + bezel, so it is a real instrument and not a decal
+  const box = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.26, 0.09), room.equip);
+  box.castShadow = box.receiveShadow = true; grp.add(box);
+  const bezel = new THREE.Mesh(new THREE.TorusGeometry(0.095, 0.011, 6, 20), room.steel);
+  bezel.position.z = 0.05; grp.add(bezel);
+
+  // dial face, drawn like the wall clock: stencil marks, wear, a red danger arc
+  const face = paintedPlate(0.17, 0.17, (c, W, H) => {
+    // BLACK-faced instrument with pale markings. A paper-white dial blew out to
+    // pure white the moment the beam touched it.
+    c.fillStyle = '#141517'; c.fillRect(0, 0, W, H);
+    const cx = W / 2, cy = H * 0.62, R = W * 0.4;
+    // red band on the low third
+    c.strokeStyle = '#8e2a1a'; c.lineWidth = W * 0.075;
+    c.beginPath(); c.arc(cx, cy, R, Math.PI, Math.PI * 1.33); c.stroke();
+    c.strokeStyle = '#b9bcae'; c.lineWidth = W * 0.02;
+    c.beginPath(); c.arc(cx, cy, R, Math.PI, Math.PI * 2); c.stroke();
+    for (let i = 0; i <= 10; i++) {
+      const a = Math.PI + (i / 10) * Math.PI;
+      const r0 = R * (i % 5 === 0 ? 0.78 : 0.88);
+      c.beginPath();
+      c.moveTo(cx + Math.cos(a) * r0, cy + Math.sin(a) * r0);
+      c.lineTo(cx + Math.cos(a) * R, cy + Math.sin(a) * R);
+      c.lineWidth = i % 5 === 0 ? W * 0.022 : W * 0.012; c.stroke();
+    }
+    c.fillStyle = '#b9bcae'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.font = Math.round(H * 0.1) + 'px ' + F.stencil;
+    c.fillText('CARGA', cx, cy - R * 0.42);
+    c.font = Math.round(H * 0.07) + 'px ' + F.crt;
+    c.fillText('LAMPARA  DC 6V', cx, cy + R * 0.3);
+  }, { px: 256 });
+  face.position.z = 0.047; grp.add(face);
+
+  // needle: pivots at the dial centre, sweeps the 180 deg scale
+  const pivot = new THREE.Group();
+  pivot.position.set(0, -0.012, 0.052); grp.add(pivot);
+  const needle = new THREE.Mesh(new THREE.BoxGeometry(0.005, 0.072, 0.004),
+    new THREE.MeshStandardMaterial({ color: 0xd8d2c4, roughness: 0.6, metalness: 0.1 }));
+  needle.geometry.translate(0, 0.036, 0); pivot.add(needle);
+  const hub = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, 0.008, 10), room.steel);
+  hub.rotation.x = Math.PI / 2; pivot.add(hub);
+
+  // a low-charge warning lamp beside the dial
+  const lamp = new THREE.Mesh(new THREE.SphereGeometry(0.012, 8, 8),
+    new THREE.MeshBasicMaterial({ color: 0x220604, toneMapped: false }));
+  lamp.position.set(0.115, -0.085, 0.05); grp.add(lamp);
+
+  room.gauge = { pivot, lamp, t: 0 };
+}
+
+/** Drive the meter. `frac` is 0..1 charge. Call every frame. */
+export function updateBatteryGauge(room, frac, dt) {
+  const gg = room.gauge; if (!gg) return;
+  gg.t += dt;
+  // needle sweeps +90deg (empty) to -90deg (full), with a little mechanical lag
+  const want = (Math.PI / 2) - frac * Math.PI;
+  gg.pivot.rotation.z += (want - gg.pivot.rotation.z) * Math.min(1, dt * 4);
+  // it also trembles slightly, like a real moving-coil movement
+  gg.pivot.rotation.z += Math.sin(gg.t * 21) * 0.004;
+  const low = frac < 0.25;
+  const blink = low ? (Math.sin(gg.t * 7) > 0 ? 1 : 0.15) : 0;
+  gg.lamp.material.color.setRGB(0.16 + 0.84 * blink, 0.05 * blink, 0.03 * blink);
 }
 
 // ---------------------------------------------------------------------------

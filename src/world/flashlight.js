@@ -30,6 +30,7 @@ export class Flashlight {
     this.targetDir = this.dir.clone();                        // desired aim
     this.on = true;
     this.battery = 100;
+    this.drainEnabled = false;   // set true only while a night is being played
     this._flick = 1;
 
     // ---- Spotlight ----
@@ -72,7 +73,14 @@ export class Flashlight {
           float t = clamp(-vPos.z / uLen, 0.0, 1.0);          // 0 apex → 1 base
           float rMax = uRadius * t + 1e-3;
           float r = length(vPos.xy) / rMax;                    // 0 axis → 1 edge
-          float radial = pow(1.0 - clamp(r,0.0,1.0), 2.2);
+          // A real reflector is not a flat disc: a hot core, a softer corona,
+          // and faint concentric/lobed irregularities from the optic.
+          float rr = clamp(r, 0.0, 1.0);
+          float core   = pow(1.0 - rr, 5.0) * 1.35;        // bright centre
+          float corona = pow(1.0 - rr, 1.7) * 0.55;        // gradual outer fall
+          float lobes  = 0.06 * sin(atan(vPos.y, vPos.x) * 3.0 + 1.7) * (1.0 - rr);
+          float rings  = 0.05 * sin(rr * 22.0);            // reflector steps
+          float radial = max(0.0, core + corona + lobes + rings);
           // Ramp the beam in slowly: at full density from the lens it saturates
           // anything you stand close to (the menu console) and reads as a white
           // blob. Real beams only become visible after some travel.
@@ -182,7 +190,11 @@ export class Flashlight {
     this.dir.lerp(this.targetDir, clamp(cfg.smoothing * dt * 60, 0, 1)).normalize();
 
     // Battery drain + flicker.
-    if (cfg.battery.enabled && this.on) this.battery = clamp(this.battery - cfg.battery.drainPerSec * dt, 0, 100);
+    // Only a running night consumes power. In the menu / end screens the lamp
+    // is effectively on mains: nothing about the game should tick there.
+    if (cfg.battery.enabled && this.on && this.drainEnabled) {
+      this.battery = clamp(this.battery - cfg.battery.drainPerSec * dt, 0, 100);
+    }
     let flick = 1;
     if (this.battery <= 0) { flick = 0; }
     else if (this.battery < cfg.battery.flickerBelow) {

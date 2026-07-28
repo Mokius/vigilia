@@ -36,7 +36,7 @@ export const CONFIG = {
   },
 
   flashlight: {
-    color: 0xffe9c6, intensity: 55, distance: 16,
+    color: 0xffe9c6, intensity: 46, distance: 16,
     // Wider cone and a much softer edge. Deliberately NOT brighter: the old
     // 0.40 rad beam forced pixel-hunting, which read as artificial difficulty.
     angle: 0.54, penumbra: 0.80, decay: 1.05,
@@ -58,6 +58,8 @@ export const CONFIG = {
     amount: 28,                // % restored (never a full charge)
     litThreshold: 0.35,
     maxAngle: 0.20,            // must be near the beam axis, not just in the cone
+    // Each collected cell comes back on its own clock, staggered.
+    respawn: [26, 48],
     // Only ONE cell can ever be charging: the one closest to the beam axis.
     exclusive: true,
   },

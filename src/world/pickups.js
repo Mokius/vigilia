@@ -58,6 +58,11 @@ class Battery {
       this.spriteMat.opacity = 0.5 * f;
       this.group.scale.setScalar(0.55 + 0.45 * f);
       if (this.anim > 0.7) this.group.visible = false;
+      // Each cell recharges on its OWN clock, so they trickle back rather than
+      // all reappearing at once. Without this a player who collected every cell
+      // was left with no way to ever recover power.
+      this.respawnT -= dt;
+      if (this.respawnT <= 0) this._respawn();
       return null;
     }
 
@@ -70,7 +75,11 @@ class Battery {
       // audible ticks that get closer together as it fills
       const step = D.dwell / 5;
       if (Math.floor(this.dwell / step) > Math.floor(prev / step)) out = 'tick';
-      if (this.dwell >= D.dwell) { this.taken = true; this.anim = 0; return 'collected'; }
+      if (this.dwell >= D.dwell) {
+        this.taken = true; this.anim = 0;
+        this.respawnT = D.respawn[0] + Math.random() * (D.respawn[1] - D.respawn[0]);
+        return 'collected';
+      }
     } else {
       this.dwell = Math.max(0, this.dwell - dt * 2.2);
     }
@@ -84,6 +93,19 @@ class Battery {
     this.group.scale.setScalar(1 + f * 0.16);
     this.group.position.y = this.pos.y + f * 0.02;
     return out;
+  }
+
+  /** Come back on a (possibly different) logical surface. */
+  _respawn() {
+    this.taken = false; this.dwell = 0; this.anim = 0; this.active = false;
+    if (this.alternates && this.alternates.length) {
+      const s = this.alternates[(Math.random() * this.alternates.length) | 0];
+      this.pos.copy(s.pos); this.pan = s.pan;
+    }
+    this.group.position.copy(this.pos);
+    this.group.visible = true;
+    this.group.scale.setScalar(1);
+    this.group.rotation.set(0, 0, 0);
   }
 
   dispose() {
@@ -149,6 +171,8 @@ export class PickupField {
     const n = Math.min(CONFIG.pickups.count, spots.length);
     for (let i = 0; i < n; i++) {
       const b = new Battery(spots[i], this.room.metal);
+      // a cell may return to any of the room's logical surfaces
+      b.alternates = this.room.pickupSpots;
       this.items.push(b); this.scene.add(b.group);
     }
   }

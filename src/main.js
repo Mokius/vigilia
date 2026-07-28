@@ -152,6 +152,7 @@ function start() {
     game.update(dt);
     game.tickScare(dt);
     room.update(dt);
+    room.setBattery(flashlight.battery / 100, dt);   // always-visible charge meter
     crt.update(dt);
 
     reticle.style.left = input.px + 'px';

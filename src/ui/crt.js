@@ -112,7 +112,9 @@ export class CRTConsole {
 
     // --- control panel: engraved plate, collared levers, screws -------------
     const panel = new THREE.Group();
-    panel.position.set(0, 0.60, 0.235); panel.rotation.x = -0.42; g.add(panel);
+    // Pushed forward and tilted flatter so the whole lever arc stays in free
+    // air. Previously the throw swung the arm back INTO the cart top and shell.
+    panel.position.set(0, 0.585, 0.30); panel.rotation.x = -0.62; g.add(panel);
     // Matte, non-metallic: the beam hits this plate almost head-on, and any
     // specular at all turns it into a white card.
     const plate = new THREE.Mesh(new THREE.BoxGeometry(0.94, 0.28, 0.045),
@@ -126,6 +128,11 @@ export class CRTConsole {
     }
 
     // Everything here is aimed at from ~1 m: keep albedo low or it clips to white.
+    // Mechanical travel limits: a real toggle swings through a small arc, and
+    // both ends must clear the housing. REST leans out toward the player, ON
+    // stands it up; neither reaches the casing behind.
+    const REST = 0.62, ON = 0.10;
+    this._leverRest = REST; this._leverOn = ON;
     const steel = new THREE.MeshStandardMaterial({ color: 0x4a4f56, roughness: 0.42, metalness: 0.75 });
     const bakelite = new THREE.MeshStandardMaterial({ color: 0x121212, roughness: 0.55, metalness: 0.1 });
     this.levers = [];
@@ -135,24 +142,24 @@ export class CRTConsole {
       collar.rotation.x = Math.PI / 2; collar.position.set(x, -0.02, 0.026); panel.add(collar);
       const pivot = new THREE.Group();
       pivot.position.set(x, -0.02, 0.03); panel.add(pivot);
-      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.008 * scale, 0.012 * scale, 0.12 * scale, 10), steel);
-      arm.geometry.translate(0, 0.06 * scale, 0); arm.castShadow = true; pivot.add(arm);
+      const arm = new THREE.Mesh(new THREE.CylinderGeometry(0.008 * scale, 0.012 * scale, 0.10 * scale, 10), steel);
+      arm.geometry.translate(0, 0.05 * scale, 0); arm.castShadow = true; pivot.add(arm);
       const ring = new THREE.Mesh(new THREE.TorusGeometry(0.016 * scale, 0.005 * scale, 6, 12), bakelite);
-      ring.rotation.x = Math.PI / 2; ring.position.y = 0.1 * scale; pivot.add(ring);
+      ring.rotation.x = Math.PI / 2; ring.position.y = 0.085 * scale; pivot.add(ring);
       const knob = new THREE.Mesh(new THREE.SphereGeometry(0.023 * scale, 14, 12),
         new THREE.MeshStandardMaterial({ color: knobColor, roughness: 0.42, metalness: 0.15 }));
-      knob.position.y = 0.125 * scale; knob.castShadow = true; pivot.add(knob);
+      knob.position.y = 0.105 * scale; knob.castShadow = true; pivot.add(knob);
       return { pivot, knob };
     };
 
     for (let i = 0; i < 5; i++) {
       const { pivot, knob } = mkLever(-0.31 + i * 0.135, 1.0, 0x2b2d31);
-      pivot.userData.target = 0.42;
+      pivot.userData.target = REST;
       this.levers.push(pivot);
       this.controls.push({ name: 'night' + (i + 1), night: i + 1, obj: knob, pivot });
     }
-    const big = mkLever(0.40, 1.7, 0x8f2a18);
-    this.startPivot = big.pivot; this.startPivot.userData.target = -0.12;
+    const big = mkLever(0.40, 1.45, 0x8f2a18);
+    this.startPivot = big.pivot; this.startPivot.userData.target = REST;
     this.controls.push({ name: 'start', obj: big.knob, pivot: big.pivot });
 
     this._syncLevers();
@@ -184,7 +191,7 @@ export class CRTConsole {
 
   _syncLevers() {
     // store targets; update() eases toward them so throws never snap
-    this.levers.forEach((p, i) => { p.userData.target = (i + 1 === this.night) ? -0.52 : 0.42; });
+    this.levers.forEach((p, i) => { p.userData.target = (i + 1 === this.night) ? this._leverOn : this._leverRest; });
   }
 
   _initCanvas() {
@@ -313,7 +320,7 @@ export class CRTConsole {
     // ---- lever throws, eased
     const k = Math.min(1, dt * 9);
     for (const lv of this.levers) lv.rotation.x += ((lv.userData.target ?? 0.42) - lv.rotation.x) * k;
-    const st = -0.12 - 0.42 * (1 - p);
+    const st = this._leverOn + (this._leverRest - this._leverOn) * (1 - p);
     this.startPivot.rotation.x += (st - this.startPivot.rotation.x) * k;
 
     // ---- redraw the phosphor at a fixed low rate: this canvas + texture upload

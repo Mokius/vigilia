@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { buildTextures } from './textures.js';
-import { addSignage, addServices, addDoorDetail } from './detail.js';
+import { addSignage, addServices, addDoorDetail, addBatteryGauge, updateBatteryGauge } from './detail.js';
 
 const V3 = THREE.Vector3;
 
@@ -53,9 +53,26 @@ export class Room {
     // every extra material clones three 1024 textures onto the GPU.
     const floorMat = this._mat(tex.concrete, 3, 3, { color: 0x4a4e56 });
     const ceilMat = floorMat;
-    const wallMat = this._mat(tex.metal, 3, 2.4, { color: 0x5c616a, metalness: 0.5, roughness: 0.66 });
-    const metal = this._mat(tex.metal, 2, 2, { color: 0x5f646c, metalness: 0.6, roughness: 0.55 });
-    const rust = this._mat(tex.rust, 1, 1, { color: 0x7a4f30, metalness: 0.25, roughness: 0.95 });
+    // --- WALLS: three DIFFERENT tilings so no two surfaces share a pattern,
+    // and low metalness so the beam stops turning them into polished sheet.
+    const wallMat = this._mat(tex.metal, 2.15, 1.75, { color: 0x585d66, metalness: 0.12, roughness: 0.88 });
+    const wallMatB = this._mat(tex.concrete, 1.55, 1.25, { color: 0x565a61, metalness: 0.06, roughness: 0.93 });
+    const wallMatC = this._mat(tex.metal, 2.75, 1.35, { color: 0x545a63, metalness: 0.14, roughness: 0.86 });
+    this.wallMatB = wallMatB; this.wallMatC = wallMatC;
+    // --- MATERIAL FAMILIES: each object type gets its own physical answer -----
+    const metal = this._mat(tex.metal, 2, 2, { color: 0x5b6068, metalness: 0.3, roughness: 0.72 });
+    const rust = this._mat(tex.rust, 1, 1, { color: 0x7a4f30, metalness: 0.12, roughness: 0.97 });
+    // painted steel: furniture, lockers, shelving
+    const painted = this._mat(tex.metal, 1.6, 1.6, { color: 0x3d4a4e, metalness: 0.18, roughness: 0.8 });
+    // stainless: handles, bars, hardware you touch
+    const steel = new THREE.MeshStandardMaterial({ color: 0x9aa0a8, metalness: 0.85, roughness: 0.38 });
+    // aged plastic / bakelite: knobs, switch bodies
+    const plastic = new THREE.MeshStandardMaterial({ color: 0x23252a, metalness: 0.0, roughness: 0.62 });
+    // worn timber: crates and pallets
+    const timber = this._mat(tex.rust, 1.2, 1.2, { color: 0x6b5638, metalness: 0.0, roughness: 0.95 });
+    // chipped enamel paint: the door leaf
+    const enamel = this._mat(tex.rust, 0.9, 1.4, { color: 0x4a5b53, metalness: 0.1, roughness: 0.86 });
+    Object.assign(this, { painted, steel, plastic, timber, enamel });
     const voidMat = new THREE.MeshStandardMaterial({ color: 0x030406, roughness: 1, side: THREE.BackSide });
     // Dark painted equipment. The big flat faces of the cabinet, pump and bench
     // sit ~1 m from the lamp; in mid-grey metal the beam clipped them to white.
@@ -71,9 +88,9 @@ export class Room {
     // Back wall: never seen (no rear screen) — minimal, just to catch shadows.
     const back = plane(CONFIG.room.W, h, wallMat);
     back.position.set(0, h / 2, d); back.rotation.y = Math.PI; back.receiveShadow = true; g.add(back);
-    const left = plane(CONFIG.room.D, h, wallMat);
+    const left = plane(CONFIG.room.D, h, wallMatB);
     left.position.set(-w, h / 2, 0); left.rotation.y = Math.PI / 2; left.receiveShadow = true; g.add(left);
-    const right = plane(CONFIG.room.D, h, wallMat);
+    const right = plane(CONFIG.room.D, h, wallMatC);
     right.position.set(w, h / 2, 0); right.rotation.y = -Math.PI / 2; right.receiveShadow = true; g.add(right);
 
     // ---- FRONT wall built around the corridor opening ----------------------
@@ -95,6 +112,7 @@ export class Room {
     addSignage(this);
     addServices(this);
     addDoorDetail(this);
+    addBatteryGauge(this);
 
     // ---- shadow pockets S1..S6: the only legal lurking spots -------------
     this.shadowSpots = [
@@ -149,10 +167,10 @@ export class Room {
     lintel.position.set(0, 2.14, 0); lintel.castShadow = true; grp.add(lintel);
     // hinge on the left edge so the gap (the "slit") opens on the right
     const pivot = new THREE.Group(); pivot.position.set(-0.52, 1.02, -0.05); grp.add(pivot);
-    const leaf = new THREE.Mesh(new THREE.BoxGeometry(1.02, 2.02, 0.06), this.rust);
+    const leaf = new THREE.Mesh(new THREE.BoxGeometry(1.02, 2.02, 0.06), this.enamel);
     leaf.geometry.translate(0.51, 0, 0);
     leaf.castShadow = leaf.receiveShadow = true; pivot.add(leaf);
-    const handle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.14), this.metal);
+    const handle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.14), this.steel);
     handle.position.set(0.9, 0.02, 0.08); pivot.add(handle);
     this.doorPivot = pivot;
     pivot.rotation.y = 0;              // shut in its frame at the start of a night
@@ -330,13 +348,14 @@ export class Room {
     for (const sz of [-0.43, 0.43]) { const p = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.98, 0.04), this.metal); p.position.set(0, 0.49, sz); p.castShadow = true; shelf.add(p); }
 
     // crates (right-back) and desk (left-back)
-    const crates = new THREE.InstancedMesh(new THREE.BoxGeometry(0.55, 0.55, 0.55), this.rust, 4);
+    const crates = new THREE.InstancedMesh(new THREE.BoxGeometry(0.55, 0.55, 0.55), this.timber, 4);
     crates.castShadow = crates.receiveShadow = true;
-    [[w - 0.4, 0.28, d - 0.5, 0.3], [w - 0.44, 0.83, d - 0.55, 0.5], [w - 0.92, 0.28, d - 0.42, 0.1], [-w + 0.52, 0.28, d - 0.42, -0.2]]
+    // Pulled off the cabinet (they blocked it) and away from the floor hatch.
+    [[w - 0.30, 0.28, d - 0.18, 0.3], [w - 0.34, 0.83, d - 0.22, 0.5], [-w + 0.95, 0.28, d - 0.16, 0.1], [-w + 0.42, 0.28, d - 0.30, -0.2]]
       .forEach(([x, y, z, ry], i) => { m.compose(new V3(x, y, z), q.setFromEuler(new THREE.Euler(0, ry, 0)), new V3(1, 1, 1)); crates.setMatrixAt(i, m); });
     crates.instanceMatrix.needsUpdate = true; this.group.add(crates);
 
-    const desk = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.05, 0.5), this.metal);
+    const desk = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.05, 0.5), this.painted);
     desk.position.set(-0.5, 0.78, d - 0.32); desk.castShadow = desk.receiveShadow = true; this.group.add(desk);
     for (const [lx, lz] of [[-0.95, 1.02], [-0.05, 1.02], [-0.95, 1.4], [-0.05, 1.4]]) {
       const l = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.78, 0.05), this.metal); l.position.set(lx, 0.39, lz); l.castShadow = true; this.group.add(l);
@@ -401,8 +420,10 @@ export class Room {
     // ---- ZONE IDENTITY: each wall now reads as a specific part of a plant ---
     // LEFT-BACK = maintenance bench. Something a night watchman actually uses,
     // and the natural place to find spare cells.
-    const bench = new THREE.Group(); bench.position.set(-1.05, 0, 0.95); this.group.add(bench);
-    const top = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.06, 1.15), this.equip);
+    // Moved back against the rear corner: at z=0.95 this bench stood squarely
+    // across the doorway approach and hid the door itself.
+    const bench = new THREE.Group(); bench.position.set(-1.02, 0, 1.19); this.group.add(bench);
+    const top = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.06, 1.15), this.painted);
     top.position.set(0, 0.88, 0); top.castShadow = top.receiveShadow = true; bench.add(top);
     for (const [bx, bz] of [[-0.25, -0.5], [0.25, -0.5], [-0.25, 0.5], [0.25, 0.5]]) {
       const l = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.88, 0.06), this.metal);
@@ -474,8 +495,12 @@ export class Room {
     const dome = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 10, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x661414, toneMapped: false }));
     dome.position.set(CONFIG.room.W / 2 - 0.02, 2.15, 1.2); dome.rotation.z = Math.PI / 2; this.group.add(dome);
     const emg = new THREE.PointLight(0x8a221a, 3.4, 6.5, 2); emg.position.set(CONFIG.room.W / 2 - 0.2, 2.1, 1.2); this.group.add(emg);
-
-    this.lights = { fluo, fluoMesh: tube, emergency: emg };
+    // A fire-alarm beacon whose driver has failed: it keeps trying to strobe,
+    // never quite manages it, and drifts between red and a sickly orange.
+    const cage = new THREE.Mesh(new THREE.TorusGeometry(0.075, 0.008, 5, 10), this.steel);
+    cage.position.copy(dome.position); cage.rotation.z = Math.PI / 2; this.group.add(cage);
+    this.lights = { fluo, fluoMesh: tube, emergency: emg, emgDome: dome, emgBase: 3.4 };
+    this._emgT = 0; this._emgLevel = 1;
   }
 
   // ---- animated state ----------------------------------------------------
@@ -561,8 +586,29 @@ export class Room {
   update(dt) {
     this._t = (this._t || 0) + dt;
     if (!this.accesses) this._initAccesses();
+
+    // --- failing alarm beacon: irregular strobe attempts + slow colour drift --
+    const L = this.lights;
+    if (L && L.emergency) {
+      this._emgT -= dt;
+      if (this._emgT <= 0) {
+        // never a fixed rhythm: sometimes a stutter, sometimes a long sulk
+        const r = Math.random();
+        this._emgLevel = r < 0.18 ? 1.9 : r < 0.55 ? 0.85 : 0.35;
+        this._emgT = r < 0.18 ? 0.07 + Math.random() * 0.12 : 0.35 + Math.random() * 2.2;
+      }
+      const want = L.emgBase * this._emgLevel;
+      L.emergency.intensity += (want - L.emergency.intensity) * Math.min(1, dt * 9);
+      // subtle hue drift red <-> sickly orange
+      const hue = 0.012 + 0.022 * (0.5 + 0.5 * Math.sin(this._t * 0.23));
+      L.emergency.color.setHSL(hue, 0.85, 0.32);
+      if (L.emgDome) L.emgDome.material.color.setHSL(hue, 0.9, 0.13 + 0.09 * this._emgLevel);
+    }
     for (const a of Object.values(this.accesses)) this._applyAccess(a, dt, this._t);
   }
+
+  /** Drive the lamp charge meter (0..1). */
+  setBattery(frac, dt) { updateBatteryGauge(this, frac, dt); }
 
   /** frac 0..1 across the night -> clock hands (00:00 -> 06:00). */
   setClock(frac) {

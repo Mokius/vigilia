@@ -66,7 +66,8 @@ export class Game {
     this.room.setClock(0);
     this.crt.rollAway();
     this.state = GState.PLAYING;
-    this._dwell = {};
+    this._dwell = {}; this._hover = null; this._latched = null;
+    this.flashlight.drainEnabled = !this.isTutorial;   // guided night never strands you
     if (this.isTutorial) {
       this.tutorial = new Tutorial({
         game: this, room: this.room, flashlight: this.flashlight,
@@ -83,6 +84,8 @@ export class Game {
     this.shake = damp(this.shake, 0, 3.2, dt);
 
     if (this.state === GState.MENU || this.state === GState.END) {
+      this.flashlight.drainEnabled = false;
+      this.flashlight.battery = 100;        // mains power until a shift starts
       this._menuInteract(dt);
       return;
     }
@@ -146,9 +149,19 @@ export class Game {
       }
     }
 
-    if (target && (this._dwell[target.name] || 0) >= D.dwell) {
+    // Hover feedback exactly ONCE, on entry.
+    const tname = target ? target.name : null;
+    if (tname !== this._hover) {
+      this._hover = tname;
+      if (tname) this.audio.blip(0);
+      this._latched = null;              // a new control may fire again
+    }
+
+    // Activation also fires once per entry: holding the beam on a control that
+    // has already been thrown must not keep re-triggering it.
+    if (target && this._latched !== target.name && (this._dwell[target.name] || 0) >= D.dwell) {
+      this._latched = target.name;
       this._dwell[target.name] = 0;
-      this.audio.blip(0);
       if (target.name === 'start') {
         const next = (this.state === GState.END && this._lastWin) ? Math.min(5, this.night + 1) : this.crt.night;
         this.crt.setNight(next);
@@ -163,6 +176,7 @@ export class Game {
   // ------------------------------------------------------------------ scare
   _onScare(scared) {
     this.state = GState.SCARE;
+    this.flashlight.drainEnabled = false;
     this.shake = 1;
     this.flash = 1;                       // blown-out frame on the attack
     this.audio.setTension(0);
@@ -237,6 +251,7 @@ export class Game {
 
   _onWin() {
     this.state = GState.END;
+    this.flashlight.drainEnabled = false;
     this._lastWin = true;
     if (this.tutorial) { this.tutorial.dispose(); this.tutorial = null; }
     this.audio.setTension(0); this.audio.boom(0);
