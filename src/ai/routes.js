@@ -12,12 +12,14 @@ export const ROUTES = {
   // --- R1: the left door, ajar. Eyes in the slit, then it leans out. --------
   door: {
     pan: -0.95, surface: 'left', access: 'door',
+    // x = -1.5 is the wall plane. Stations 0-1 sit BEHIND it, in the recess, so
+    // nothing is ever standing inside a shut door.
     points: [
-      [-1.34, 0, 0.35, 'slit'],     // inside the recess, only eyes in the gap
-      [-1.16, 0, 0.32, 'peek'],     // leans around the door edge
-      [-0.92, 0, 0.22, 'threshold'],// steps into the doorway
-      [-0.62, 0, 0.08, 'inside'],
-      [-0.30, 0, 0.00, 'close'],
+      [-1.80, 0, 0.35, 'slit'],     // deep in the recess, only eyes in the gap
+      [-1.58, 0, 0.35, 'peek'],     // leaning into the gap, still outside
+      [-1.24, 0, 0.28, 'threshold'],// crossing the plane: needs a real opening
+      [-0.85, 0, 0.14, 'inside'],
+      [-0.38, 0, 0.02, 'close'],
     ],
   },
 
@@ -49,11 +51,11 @@ export const ROUTES = {
   vent: {
     pan: -0.35, surface: 'front', access: 'vent',
     points: [
-      [-0.90, 0.34, -1.44, 'emerge'], // inside the duct, pushing the cover
-      [-0.90, 0.30, -1.22, 'emerge'], // half out
-      [-0.88, 0.00, -1.00, 'drop'],   // on the floor
-      [-0.70, 0.00, -0.70, 'crawl'],
-      [-0.40, 0.00, -0.35, 'close'],
+      [-0.90, 0.34, -1.78, 'emerge'], // inside the duct, behind the grille
+      [-0.90, 0.32, -1.56, 'emerge'], // pressed against the grille
+      [-0.89, 0.16, -1.26, 'drop'],   // through it, dropping out
+      [-0.72, 0.00, -0.82, 'crawl'],
+      [-0.42, 0.00, -0.38, 'close'],
     ],
   },
 
@@ -61,11 +63,11 @@ export const ROUTES = {
   hatch: {
     pan: 0.30, surface: 'floor', access: 'hatch',
     points: [
-      [0.55, -0.35, 0.45, 'emerge'],  // still down in the pit
-      [0.55, -0.05, 0.45, 'emerge'],  // head and shoulders out
-      [0.55, 0.00, 0.35, 'crawl'],
-      [0.40, 0.00, 0.10, 'crawl'],
-      [0.22, 0.00, -0.10, 'close'],
+      [0.55, -0.62, 0.45, 'emerge'],  // down in the pit, under the grate
+      [0.55, -0.30, 0.45, 'emerge'],  // pushing up against it
+      [0.55, 0.00, 0.42, 'crawl'],    // through: needs the grate shifted
+      [0.42, 0.00, 0.12, 'crawl'],
+      [0.24, 0.00, -0.10, 'close'],
     ],
   },
 
@@ -73,11 +75,11 @@ export const ROUTES = {
   window: {
     pan: 0.95, surface: 'right', access: null,  // already smashed open
     points: [
-      [1.44, 0.62, -0.15, 'slit'],    // face behind the opening
-      [1.34, 0.62, -0.15, 'peek'],
-      [1.16, 0.30, -0.15, 'threshold'],// climbing over the sill
-      [0.92, 0.00, -0.15, 'inside'],
-      [0.55, 0.00, -0.12, 'close'],
+      [1.72, 0.66, -0.15, 'slit'],    // in the void behind the broken pane
+      [1.52, 0.66, -0.15, 'peek'],    // face filling the opening
+      [1.22, 0.34, -0.15, 'climb'],   // a leg over the sill
+      [0.88, 0.00, -0.15, 'inside'],
+      [0.50, 0.00, -0.12, 'close'],
     ],
   },
 

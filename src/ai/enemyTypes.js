@@ -44,16 +44,22 @@ export const ENEMY_TYPES = [
 ];
 
 export function nightParams(night) {
+  // Night 1 is a lesson, not a test: ONE creature at a time, long gaps between
+  // arrivals, and generous stillness so there is always time to find it, put the
+  // beam on it and learn that the light is what saves you. Pressure then ramps.
+  const n = Math.max(1, night);
   return {
-    // Several at once from the first night. Capped at 3: each creature is a
-    // skinned mesh rendered in 4 viewports plus the shadow pass, and 4 of them
-    // measurably breaks the frame budget.
-    maxConcurrent: Math.min(3, 2 + Math.floor(night / 3)),
-    spawnInterval: [Math.max(2.4, 6.5 - night * 0.7), Math.max(4.2, 10 - night)],
-    speedMul: 1 + (night - 1) * 0.14,
-    crossChance: 0.20,          // odds a spawn is a harmless fly-by scare
+    maxConcurrent: n <= 1 ? 1 : n <= 2 ? 2 : 3,
+    spawnInterval: n <= 1 ? [11, 18]
+                 : n <= 2 ? [8, 13]
+                 : [Math.max(3.5, 9 - n * 0.8), Math.max(6, 14 - n * 1.1)],
+    // Multiplies how long a creature stands still between moves: >1 = slower,
+    // more reaction time for the player.
+    holdMul: n <= 1 ? 1.85 : n <= 2 ? 1.4 : Math.max(0.85, 1.35 - (n - 2) * 0.18),
+    crossChance: 0.24,          // harmless fly-bys stay common: tension, not deaths
   };
 }
+
 
 // Staging of an appearance (docs/FASE1_ESCENARIO.md §4.2): the opening starts
 // moving BEFORE anything is visible, then the creature fades in — it must never

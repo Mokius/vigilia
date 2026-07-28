@@ -93,13 +93,16 @@ export class Room {
       new V3(-1.28, 0, -0.85), new V3(1.25, 0, 1.00), new V3(-0.50, 0, 1.05),
     ];
     // ---- battery pickup positions (on ledges / in the pockets) -----------
+    // Cells sit where a maintenance crew would actually have left them: on the
+    // bench, on the shelving, by the breaker cabinet, on the crates, on the desk
+    // and on the pump's flange. Each one makes you look toward a way in.
     this.pickupSpots = [
-      { pos: new V3(-1.34, 0.95, -0.85), pan: -0.85 },   // shelf, left wall
-      { pos: new V3(-1.30, 0.06, -1.28), pan: -0.7 },    // floor, S1
-      { pos: new V3(1.30, 0.06, -1.26), pan: 0.7 },      // floor, S2
-      { pos: new V3(1.32, 0.70, 0.95), pan: 0.85 },      // on the crates
-      { pos: new V3(-0.50, 0.83, 1.05), pan: -0.3 },     // on the desk
-      { pos: new V3(0.30, 0.06, -1.40), pan: 0.15 },     // floor, corridor mouth
+      { pos: new V3(-1.05, 0.95, 0.70), pan: -0.8 },   // maintenance bench top
+      { pos: new V3(-1.32, 0.98, -0.85), pan: -0.9 },  // industrial shelving
+      { pos: new V3(1.30, 0.92, 0.75), pan: 0.85 },    // ledge of the breaker cabinet
+      { pos: new V3(1.26, 0.90, 0.95), pan: 0.8 },     // stacked crate, right-back
+      { pos: new V3(-0.50, 0.86, 1.08), pan: -0.3 },   // control desk
+      { pos: new V3(1.18, 0.60, -0.95), pan: 0.7 },    // pump flange (faces the window)
     ];
   }
 
@@ -318,6 +321,62 @@ export class Room {
     });
     skirt.instanceMatrix.needsUpdate = true; this.group.add(skirt);
 
+    // ---- ZONE IDENTITY: each wall now reads as a specific part of a plant ---
+    // LEFT-BACK = maintenance bench. Something a night watchman actually uses,
+    // and the natural place to find spare cells.
+    const bench = new THREE.Group(); bench.position.set(-1.05, 0, 0.95); this.group.add(bench);
+    const top = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.06, 1.15), this.metal);
+    top.position.set(0, 0.88, 0); top.castShadow = top.receiveShadow = true; bench.add(top);
+    for (const [bx, bz] of [[-0.25, -0.5], [0.25, -0.5], [-0.25, 0.5], [0.25, 0.5]]) {
+      const l = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.88, 0.06), this.metal);
+      l.position.set(bx, 0.44, bz); l.castShadow = true; bench.add(l);
+    }
+    const backboard = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.5, 1.1), this.rust);
+    backboard.position.set(-0.29, 1.16, 0); backboard.castShadow = true; bench.add(backboard);
+    // tools hanging on the backboard: instanced, one draw call
+    const toolGeo = new THREE.BoxGeometry(0.03, 0.22, 0.03);
+    const tools = new THREE.InstancedMesh(toolGeo, this.metal, 5);
+    tools.castShadow = true;
+    for (let i = 0; i < 5; i++) {
+      m.compose(new V3(-0.25, 1.14, -0.42 + i * 0.21), q.setFromEuler(new THREE.Euler(0, 0, (i % 2 ? 1 : -1) * 0.12)), new V3(1, 1, 1));
+      tools.setMatrixAt(i, m);
+    }
+    tools.instanceMatrix.needsUpdate = true; bench.add(tools);
+    const vice = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.13, 0.16), this.metal);
+    vice.position.set(0.1, 0.97, -0.42); vice.castShadow = true; bench.add(vice);
+
+    // RIGHT-BACK = electrical distribution. Tells you where the power is.
+    const cab = new THREE.Group(); cab.position.set(w - 0.14, 1.05, 0.75); this.group.add(cab);
+    const box2 = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.85, 0.62), this.metal);
+    box2.castShadow = box2.receiveShadow = true; cab.add(box2);
+    const doorPanel = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.78, 0.56), this.rust);
+    doorPanel.position.set(-0.12, 0, 0.03); doorPanel.rotation.y = 0.35; doorPanel.castShadow = true; cab.add(doorPanel);
+    // breaker rows behind the ajar panel
+    const brk = new THREE.InstancedMesh(new THREE.BoxGeometry(0.03, 0.05, 0.02), this.metal, 12);
+    for (let i = 0; i < 12; i++) {
+      m.compose(new V3(-0.1, 0.28 - (i % 6) * 0.09, -0.16 + Math.floor(i / 6) * 0.22), q.identity(), new V3(1, 1, 1));
+      brk.setMatrixAt(i, m);
+    }
+    brk.instanceMatrix.needsUpdate = true; cab.add(brk);
+    const warn = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.16),
+      new THREE.MeshBasicMaterial({ color: 0x4a3c08, toneMapped: false }));
+    warn.position.set(-0.115, 0.3, 0.2); warn.rotation.y = -Math.PI / 2; cab.add(warn);
+
+    // RIGHT-FRONT = a dead pump with a hand valve: the "machine" of the room
+    const pump = new THREE.Group(); pump.position.set(w - 0.32, 0, -0.95); this.group.add(pump);
+    const body2 = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.19, 0.55, 12), this.rust);
+    body2.position.y = 0.28; body2.castShadow = body2.receiveShadow = true; pump.add(body2);
+    const flange = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.04, 12), this.metal);
+    flange.position.y = 0.56; pump.add(flange);
+    const riser = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 1.6, 10), this.rust);
+    riser.position.set(0, 1.38, 0); riser.castShadow = true; pump.add(riser);
+    const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.018, 6, 14), this.metal);
+    wheel.position.set(-0.12, 0.95, 0); wheel.rotation.y = Math.PI / 2; wheel.castShadow = true; pump.add(wheel);
+    for (let i = 0; i < 3; i++) {
+      const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.24, 0.015), this.metal);
+      spoke.position.set(-0.12, 0.95, 0); spoke.rotation.x = i * 1.05; wheel.parent.add(spoke);
+    }
+
     // hazard stripe on the floor at the corridor threshold (scale + reading)
     const stripe = new THREE.Mesh(new THREE.PlaneGeometry(1.34, 0.13), new THREE.MeshBasicMaterial({ color: 0x2b2410, toneMapped: false }));
     stripe.rotation.x = -Math.PI / 2; stripe.position.set(0, 0.006, -1.15); this.group.add(stripe);
@@ -382,6 +441,14 @@ export class Room {
   }
 
   accessState(name) { const a = this.accesses && this.accesses[name]; return a ? a.state : 0; }
+
+  /** How far an access has ACTUALLY travelled, not just what was requested.
+   *  Creatures gate their movement on this so nothing crosses closed geometry. */
+  accessOpenness(name) {
+    const a = this.accesses && this.accesses[name];
+    if (!a) return { state: 99, steps: 1, anim: 1, moving: false };
+    return { state: a.state, steps: a.steps, anim: a.anim, moving: a.tellT > 0 || Math.abs(a.target - a.anim) > 0.04 };
+  }
 
   _applyAccess(a, dt, t) {
     // the shudder that precedes any movement

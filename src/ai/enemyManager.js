@@ -57,10 +57,10 @@ export class EnemyManager {
     // Later nights don't move faster — they WAIT LESS. The dash is already
     // near-instant, so pressure comes from shorter, more erratic stillness.
     const scaled = Object.assign({}, type, {
-      holdMin: type.holdMin / this.params.speedMul,
-      holdMax: type.holdMax / this.params.speedMul,
+      holdMin: type.holdMin * this.params.holdMul,
+      holdMax: type.holdMax * this.params.holdMul,
     });
-    const e = new Enemy(scaled, routeName, this.scene, this.eye, mulberry32((this.rng() * 1e9) >>> 0));
+    const e = new Enemy(scaled, routeName, this.scene, this.eye, mulberry32((this.rng() * 1e9) >>> 0), this.room);
     this.enemies.push(e);
     this.bus.emit('spawn', { name: type.name, pan: ROUTES[routeName].pan, route: routeName });
   }

@@ -34,7 +34,7 @@ export const EState = {
 const STAGE_CLIP = {
   slit: 'idle', stare: 'idle', far: 'idle',
   peek: 'peek', threshold: 'walk', hall: 'walk', inside: 'walk', close: 'walk',
-  emerge: 'crawl', drop: 'crawl', crawl: 'crawl', cross: 'walk',
+  emerge: 'crawl', drop: 'crawl', crawl: 'crawl', cross: 'walk', climb: 'climb',
 };
 
 const HEAD_BONE_RE = /(mixamorig)?:?head$/i;
@@ -66,8 +66,8 @@ function proceduralBody(eyeColor) {
 }
 
 export class Enemy {
-  constructor(type, routeName, scene, eye, rng) {
-    this.type = type; this.scene = scene; this.eye = eye; this.rng = rng;
+  constructor(type, routeName, scene, eye, rng, room = null) {
+    this.type = type; this.scene = scene; this.eye = eye; this.rng = rng; this.room = room;
     this.routeName = routeName;
     this.route = ROUTES[routeName];
     this.state = this.route.cross ? EState.CROSS : EState.APPROACH;
@@ -176,6 +176,23 @@ export class Enemy {
     const base = randRange(this.rng, T.holdMin, T.holdMax);
     // occasional very short hold => sudden double-move, deeply unnerving
     return this.rng() < 0.18 ? base * 0.35 : base;
+  }
+
+  /**
+   * Can the body legally occupy `station` yet? Crossing an access requires that
+   * access to have physically travelled far enough — otherwise the creature
+   * would pass through a shut door, which destroys the illusion instantly.
+   * Station N needs the access at notch min(N, steps), and the ANIMATION must
+   * have arrived there (not merely been requested).
+   */
+  _clearedFor(station) {
+    const acc = this.route.access;
+    if (!acc || !this.room || !this.room.accessOpenness) return true;
+    const o = this.room.accessOpenness(acc);
+    const needed = Math.min(station, o.steps);
+    if (o.state < needed) return false;
+    // wait for the leaf/grate/grate to actually be there, and to stop moving
+    return o.anim >= (needed / o.steps) - 0.05 && !o.moving;
   }
 
   /** Snap to another station in a fraction of a second. */
@@ -299,12 +316,18 @@ export class Enemy {
       if (this.holdT <= 0) {
         const dir = this.state === EState.RETREAT ? -1 : 1;
         const to = clamp(this.station + dir, 0, last);
-        // Working its way in physically forces the access wider; backing out
-        // lets it fall shut again (unless it has already been forced open).
-        if (this.route.access && to !== this.station && this.station <= 1) {
-          ev.push({ type: 'access', payload: { name: this.route.access, opening: dir > 0 } });
+        if (dir > 0 && !this._clearedFor(to)) {
+          // Not enough room to get through yet: work the access wider and WAIT.
+          // It never squeezes through geometry that hasn't moved.
+          if (this.route.access) ev.push({ type: 'access', payload: { name: this.route.access, opening: true } });
+          this.holdT = 0.55;           // try again once the mechanism has moved
+          this._playIntent('peek');    // straining at the gap meanwhile
+        } else {
+          if (this.route.access && dir < 0 && to !== this.station && this.station <= 1) {
+            ev.push({ type: 'access', payload: { name: this.route.access, opening: false } });
+          }
+          this._beginDash(to);
         }
-        this._beginDash(to);
       }
       if (this.state === EState.CROSS) this._setOpacity(this.station >= last - 1 ? 0.35 : 1);
       this._cues(dt, ev);

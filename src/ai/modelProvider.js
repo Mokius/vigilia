@@ -149,6 +149,7 @@ const INTENT_KEYS = {
   idle:   ['idle', 'breath', 'stand', 'neutral', 'tpose', 'pose'],
   walk:   ['walk', 'stagger', 'shamble', 'stalk', 'move', 'run', 'sneak'],
   crawl:  ['crawl', 'creep', 'prone', 'ground', 'floor'],
+  climb:  ['climb', 'vault', 'jump', 'clamber', 'hang', 'crawl'],
   scream: ['scream', 'yell', 'shout', 'roar', 'attack', 'bite', 'lunge', 'punch', 'kick'],
   peek:   ['peek', 'look', 'turn', 'head', 'agree', 'react'],
   death:  ['death', 'die', 'fall', 'dying'],
@@ -182,7 +183,7 @@ export function bindClips(animations) {
   }
   if (!out.idle && list.length) out.idle = list[0];
   // Never leave the critical intents empty if anything at all exists.
-  for (const k of ['walk', 'crawl', 'scream', 'peek']) if (!out[k]) out[k] = out.idle;
+  for (const k of ['walk', 'crawl', 'climb', 'scream', 'peek']) if (!out[k]) out[k] = out.walk || out.idle;
   out.all = list.map((c) => c.name);
   return out;
 }

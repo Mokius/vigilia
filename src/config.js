@@ -37,7 +37,9 @@ export const CONFIG = {
 
   flashlight: {
     color: 0xffe9c6, intensity: 55, distance: 16,
-    angle: 0.40, penumbra: 0.52, decay: 1.05,
+    // Wider cone and a much softer edge. Deliberately NOT brighter: the old
+    // 0.40 rad beam forced pixel-hunting, which read as artificial difficulty.
+    angle: 0.54, penumbra: 0.80, decay: 1.05,
     pitchMin: -1.52, pitchMax: 0.42,
     yawSpeed: 0.0022, pitchSpeed: 0.0022, smoothing: 0.18,
     // ---- FINITE battery (docs/FASE1_ESCENARIO.md §5) ----
@@ -55,7 +57,7 @@ export const CONFIG = {
     dwell: 1.4,                // seconds of continuous aim to collect
     amount: 28,                // % restored (never a full charge)
     litThreshold: 0.35,
-    maxAngle: 0.16,            // must be near the beam axis, not just in the cone
+    maxAngle: 0.20,            // must be near the beam axis, not just in the cone
     // Only ONE cell can ever be charging: the one closest to the beam axis.
     exclusive: true,
   },
