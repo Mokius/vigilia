@@ -275,6 +275,14 @@ export class Enemy {
           this.holdT = this._rollHold();
           this._playIntent('idle');
           if (this.state === EState.APPROACH && this.station >= last) {
+            if (this.harmless) {
+              // Guided night: it gets right up to you and then simply leaves.
+              // Nothing can ever land a jumpscare during the tutorial.
+              this.state = EState.RETREAT;
+              this._beginDash(Math.max(0, this.station - 1));
+              this._cues(dt, ev);
+              return ev;
+            }
             this.state = EState.ATTACK;
             this._playIntent('scream', true);
             ev.push({ type: 'scare', payload: { type: this.type, pan: this.pan, enemy: this } });
@@ -294,12 +302,26 @@ export class Enemy {
         return ev;
       }
 
+      // Driven off while still at its entry station: there is nowhere further
+      // back to dash to, so leave now. Without this the creature sat in RETREAT
+      // for ever and its route stayed blocked for the rest of the night.
+      if (this.state === EState.RETREAT && this.station <= 0) {
+        this.state = EState.HIDE; this._hideT = 0.45;
+        if (this.route.access) ev.push({ type: 'access', payload: { name: this.route.access, opening: false } });
+        this._cues(dt, ev);
+        return ev;
+      }
+
       // --- holding: motionless, watching -----------------------------------
-      if (this.state === EState.APPROACH && this.lit > 0.35) {
+      // `demoLock` (guided night only): until it has actually forced the access
+      // and come through, the light does NOT stop it. That way the player always
+      // sees the opening animation, hears it and watches the thing move before
+      // being taught the counter.
+      const canBeRepelled = this.station >= (this.demoLock || 0);
+      if (this.state === EState.APPROACH && this.lit > 0.35 && canBeRepelled) {
         this.dwell += dt * this.lit;
-        // it flinches the instant the beam lands, and keeps flinching harder
-        this._playIntent('peek');
-        this.holdT = Math.max(this.holdT, 0.25);   // pinned: it cannot advance while lit
+        this._playIntent('peek');            // flinches the instant the beam lands
+        this.holdT = Math.max(this.holdT, 0.25);   // pinned: cannot advance while lit
         if (this.dwell >= this.type.banishTime) {
           this.state = EState.RETREAT;
           ev.push({ type: 'banish', payload: { pan: this.pan, name: this.type.name } });
@@ -308,6 +330,9 @@ export class Enemy {
         this._cues(dt, ev);
         return ev;
       }
+      // Demo phase: it shrugs the beam off and keeps working its way in, so the
+      // logic below (advance / force the access) still runs.
+      if (!canBeRepelled) this.dwell = Math.min(this.dwell, this.type.banishTime * 0.85);
       this.dwell = Math.max(0, this.dwell - dt * 0.6);
       this._playIntent('idle');
       this.holdT -= dt;

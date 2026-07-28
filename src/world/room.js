@@ -160,21 +160,89 @@ export class Room {
 
   _window(pos, ry) {
     const grp = new THREE.Group(); grp.position.copy(pos); grp.rotation.y = ry; this.group.add(grp);
-    const frame = new THREE.Mesh(new THREE.BoxGeometry(1.52, 1.16, 0.12), this.metal);
-    frame.castShadow = frame.receiveShadow = true; grp.add(frame);
-    const hole = new THREE.Mesh(new THREE.BoxGeometry(1.3, 0.95, 0.85), this.voidMat);
-    hole.position.set(0, 0, -0.45); grp.add(hole);
-    const sill = new THREE.Mesh(new THREE.BoxGeometry(1.44, 0.09, 0.3), this.metal);
-    sill.position.set(0, -0.58, 0.11); sill.castShadow = sill.receiveShadow = true; grp.add(sill);
-    // shards still in the frame
-    const shard = new THREE.MeshPhysicalMaterial({ color: 0x0c1013, roughness: 0.22, metalness: 0, transmission: 0.55, transparent: true, opacity: 0.45, ior: 1.4 });
-    for (let i = 0; i < 9; i++) {
-      const s = new THREE.Mesh(new THREE.PlaneGeometry(0.16 + Math.random() * 0.22, 0.16 + Math.random() * 0.24), shard);
-      const e = i % 4;
-      s.position.set(e === 0 ? -0.56 : e === 1 ? 0.56 : (Math.random() - 0.5) * 0.9,
-                     e === 2 ? -0.4 : e === 3 ? 0.42 : (Math.random() - 0.5) * 0.7, 0.06);
-      s.rotation.z = (Math.random() - 0.5) * 0.7; grp.add(s);
+
+    // The whole right wall used to read as one uniform mass because the frame,
+    // the sill and the wall were all variants of the same metal at similar
+    // roughness. Each part now gets a DIFFERENT physical answer to light:
+    //   frame   = machined steel, smooth + metallic  -> catches a hard highlight
+    //   surround= rough painted concrete lintel      -> matte, kills reflection
+    //   sill    = heavily worn, deep normals         -> broken, gritty
+    const steel = new THREE.MeshStandardMaterial({
+      color: 0x8f959c, roughness: 0.28, metalness: 0.92,
+      map: this.metal.map, normalMap: this.metal.normalMap,
+      normalScale: new THREE.Vector2(0.5, 0.5),
+    });
+    const lintelMat = new THREE.MeshStandardMaterial({
+      color: 0x6d6a63, roughness: 0.98, metalness: 0.0,
+      map: this.rust.map, normalMap: this.rust.normalMap,
+      normalScale: new THREE.Vector2(2.2, 2.2),
+    });
+    const sillMat = new THREE.MeshStandardMaterial({
+      color: 0x55524c, roughness: 0.88, metalness: 0.35,
+      map: this.rust.map, normalMap: this.rust.normalMap,
+      normalScale: new THREE.Vector2(2.8, 2.8),
+    });
+    this._winSteel = steel;
+
+    // structural surround: a concrete lintel over it and two pilasters, so the
+    // opening is framed by architecture instead of floating in a flat wall
+    const lintel = new THREE.Mesh(new THREE.BoxGeometry(1.86, 0.2, 0.16), lintelMat);
+    lintel.position.set(0, 0.72, 0.06); lintel.castShadow = lintel.receiveShadow = true; grp.add(lintel);
+    for (const sx of [-1, 1]) {
+      const pil = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1.72, 0.13), lintelMat);
+      pil.position.set(sx * 0.85, -0.16, 0.05); pil.castShadow = pil.receiveShadow = true; grp.add(pil);
     }
+
+    // the frame itself: 4 machined bars, so the glazing line is a real recess
+    const bar = (sx, sy, px, py) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, 0.14), steel);
+      m.position.set(px, py, 0.02); m.castShadow = m.receiveShadow = true; grp.add(m);
+    };
+    bar(1.52, 0.11, 0, 0.52); bar(1.52, 0.11, 0, -0.52);
+    bar(0.11, 1.04, -0.70, 0); bar(0.11, 1.04, 0.70, 0);
+    // central mullion: gives the opening a readable division
+    const mull = new THREE.Mesh(new THREE.BoxGeometry(0.055, 1.0, 0.1), steel);
+    mull.position.set(0, 0, 0.02); mull.castShadow = true; grp.add(mull);
+
+    const hole = new THREE.Mesh(new THREE.BoxGeometry(1.32, 0.96, 0.9), this.voidMat);
+    hole.position.set(0, 0, -0.48); grp.add(hole);
+
+    const sill = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.11, 0.32), sillMat);
+    sill.position.set(0, -0.6, 0.12); sill.castShadow = sill.receiveShadow = true; grp.add(sill);
+    // bent-up lip on the sill: something has been climbing over this
+    const lip = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.05, 0.04), sillMat);
+    lip.position.set(0, -0.55, 0.27); lip.rotation.x = -0.4; grp.add(lip);
+
+    // remaining glass: bright, sharp, clearly a different substance
+    const shard = new THREE.MeshPhysicalMaterial({
+      color: 0x9fc4cc, roughness: 0.03, metalness: 0.0,
+      transmission: 0.85, transparent: true, opacity: 0.3, ior: 1.52,
+      reflectivity: 1.0, side: THREE.DoubleSide,
+    });
+    for (let i = 0; i < 10; i++) {
+      const s = new THREE.Mesh(new THREE.PlaneGeometry(0.14 + Math.random() * 0.2, 0.14 + Math.random() * 0.22), shard);
+      const e = i % 4;
+      s.position.set(e === 0 ? -0.58 : e === 1 ? 0.58 : (Math.random() - 0.5) * 1.0,
+                     e === 2 ? -0.42 : e === 3 ? 0.44 : (Math.random() - 0.5) * 0.72, 0.055);
+      s.rotation.z = (Math.random() - 0.5) * 0.8; s.rotation.y = (Math.random() - 0.5) * 0.3;
+      grp.add(s);
+    }
+    // glass grit on the sill and floor below: tells the story and adds sparkle
+    const grit = new THREE.InstancedMesh(new THREE.TetrahedronGeometry(0.016), shard, 14);
+    const mm = new THREE.Matrix4(), qq = new THREE.Quaternion();
+    for (let i = 0; i < 14; i++) {
+      mm.compose(new V3((Math.random() - 0.5) * 1.4, i < 7 ? -0.53 : -1.2, 0.16 + Math.random() * 0.22),
+        qq.setFromEuler(new THREE.Euler(Math.random() * 3, Math.random() * 3, Math.random() * 3)), new V3(1, 1, 1));
+      grit.setMatrixAt(i, mm);
+    }
+    grit.instanceMatrix.needsUpdate = true; grp.add(grit);
+
+    // LOCAL LIGHT: a dead-cold spill from the machine room behind, so the hole
+    // reads as depth and anything climbing through is backlit.
+    const back = new THREE.PointLight(0x2a4a66, 1.5, 2.6, 2);
+    back.position.set(0, 0, -0.7); grp.add(back);
+    this.windowLight = back;
+
     this.window = grp;
   }
 
@@ -423,7 +491,10 @@ export class Room {
       vent: mk('vent', 3, -0.35),
       hatch: mk('hatch', 3, 0.30),
     };
-    this.onAccessSound = null;   // (kind, step, pan, closing) => void
+    // Do NOT clobber the handler here: _initAccesses() runs lazily on the first
+    // update(), which is AFTER the Game has registered its callback — resetting
+    // it silently killed every door/vent/hatch sound in normal play.
+    if (typeof this.onAccessSound !== 'function') this.onAccessSound = null;
   }
 
   resetAccesses() {

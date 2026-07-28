@@ -133,6 +133,15 @@ export class PickupField {
     tex.needsUpdate = true;
   }
 
+  /** Place cells at exactly these spots (used by the guided night). */
+  spawnAt(spots) {
+    this.clear();
+    for (const s of spots) {
+      const b = new Battery(s, this.room.metal);
+      this.items.push(b); this.scene.add(b.group);
+    }
+  }
+
   spawn(rng) {
     this.clear();
     const spots = this.room.pickupSpots.slice();

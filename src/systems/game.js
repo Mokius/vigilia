@@ -10,6 +10,7 @@ import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { EnemyManager } from '../ai/enemyManager.js';
 import { PickupField } from '../world/pickups.js';
+import { Tutorial } from './tutorial.js';
 import { damp, clamp, mulberry32 } from '../core/util.js';
 
 export const GState = { MENU: 'menu', PLAYING: 'playing', SCARE: 'scare', END: 'end' };
@@ -54,13 +55,24 @@ export class Game {
     this.night = clamp(night, 1, 5);
     this.audio.resume().catch(() => {});
     this.flashlight.battery = 100; this.flashlight.on = true;
-    this.timer = CONFIG.game.nightSeconds;
-    this.manager.start(this.night);
-    this.pickups.spawn(mulberry32((0xabcd ^ Math.imul(this.night, 48271)) >>> 0));
+    // NIGHT 1 IS THE GUIDED SHIFT: nothing spawns by itself, the clock does not
+    // run you out, and no creature can land a scare.
+    this.isTutorial = (this.night === 1);
+    if (this.tutorial) { this.tutorial.dispose(); this.tutorial = null; }
+    this.timer = this.isTutorial ? Number.POSITIVE_INFINITY : CONFIG.game.nightSeconds;
+    this.manager.start(this.night, { autoSpawn: !this.isTutorial });
+    if (this.isTutorial) this.pickups.clear();
+    else this.pickups.spawn(mulberry32((0xabcd ^ Math.imul(this.night, 48271)) >>> 0));
     this.room.setClock(0);
     this.crt.rollAway();
     this.state = GState.PLAYING;
     this._dwell = {};
+    if (this.isTutorial) {
+      this.tutorial = new Tutorial({
+        game: this, room: this.room, flashlight: this.flashlight,
+        audio: this.audio, manager: this.manager, pickups: this.pickups,
+      });
+    }
     this.onPointerLock && this.onPointerLock();
   }
 
@@ -76,8 +88,18 @@ export class Game {
     }
     if (this.state !== GState.PLAYING) return;
 
-    this.timer -= dt;
-    this.room.setClock(1 - clamp(this.timer / CONFIG.game.nightSeconds, 0, 1));
+    // The guided night has no countdown: it advances by script, and the clock
+    // creeps forward only as the player completes steps.
+    if (this.isTutorial) {
+      if (this.tutorial) {
+        this.tutorial.update(dt);
+        const steps = 8;
+        this.room.setClock(clamp(this.tutorial.i / steps, 0, 1));
+      }
+    } else {
+      this.timer -= dt;
+      this.room.setClock(1 - clamp(this.timer / CONFIG.game.nightSeconds, 0, 1));
+    }
 
     const r = this.manager.update(dt, this.flashlight);
     this.audio.setTension(r.tension);
@@ -88,13 +110,18 @@ export class Game {
       if (c.kind === 'collected') {
         this.flashlight.recharge(CONFIG.pickups.amount);
         this.audio.charge(c.pan);
+        if (this.tutorial) this.tutorial.batteriesTaken++;
       } else {
         this.audio.tick(c.pan, c.frac);   // rising ticks while you hold it
       }
     }
 
-    if (r.scared) return this._onScare(r.scared);
-    if (this.timer <= 0) return this._onWin();
+    // During the guided night the battery never strands you either.
+    if (this.isTutorial && this.flashlight.battery < 35) this.flashlight.recharge(40);
+
+    if (r.scared && !this.isTutorial) return this._onScare(r.scared);
+    if (this.isTutorial) { if (this.tutorial && this.tutorial.finished) return this._onWin(); }
+    else if (this.timer <= 0) return this._onWin();
   }
 
   // --------------------------------------------------- diegetic menu levers
@@ -211,6 +238,7 @@ export class Game {
   _onWin() {
     this.state = GState.END;
     this._lastWin = true;
+    if (this.tutorial) { this.tutorial.dispose(); this.tutorial = null; }
     this.audio.setTension(0); this.audio.boom(0);
     const left = this.pickups.remaining;
     this.manager.stop(); this.pickups.clear();

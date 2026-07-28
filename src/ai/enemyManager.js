@@ -19,13 +19,33 @@ export class EnemyManager {
     this.enemies = []; this.active = false; this.tension = 0;
   }
 
-  start(night) {
+  start(night, { autoSpawn = true } = {}) {
     this.stop();
     this.night = night;
     this.params = nightParams(night);
     this.rng = mulberry32((0x9e3779b9 ^ Math.imul(night, 2654435761)) >>> 0);
     this.spawnTimer = randRange(this.rng, 2.0, 4.0);
     this.active = true; this.tension = 0;
+    // The guided night drives every appearance itself.
+    this.autoSpawn = autoSpawn;
+  }
+
+  /** Scripted spawn on a named route (used by the tutorial). Returns the Enemy. */
+  spawnOn(routeName, { harmless = false, holdMul = 1, demoLock = 0 } = {}) {
+    const route = ROUTES[routeName];
+    if (!route) return null;
+    // pick a type that legitimately uses this access, so the demo stays coherent
+    const type = ENEMY_TYPES.find((t) => t.routes.includes(routeName)) || ENEMY_TYPES[0];
+    const scaled = Object.assign({}, type, {
+      holdMin: type.holdMin * holdMul, holdMax: type.holdMax * holdMul,
+    });
+    const e = new Enemy(scaled, routeName, this.scene, this.eye,
+      mulberry32(((Math.random() * 1e9) | 0) >>> 0), this.room);
+    e.harmless = harmless;
+    e.demoLock = demoLock;
+    this.enemies.push(e);
+    this.bus.emit('spawn', { name: type.name, pan: route.pan, route: routeName });
+    return e;
   }
 
   stop() {
@@ -70,8 +90,8 @@ export class EnemyManager {
     let scared = false;
 
     const live = this.enemies.filter(THREATENING).length;
-    this.spawnTimer -= dt;
-    if (this.spawnTimer <= 0 && live < this.params.maxConcurrent) {
+    if (this.autoSpawn !== false) this.spawnTimer -= dt;
+    if (this.autoSpawn !== false && this.spawnTimer <= 0 && live < this.params.maxConcurrent) {
       this.spawnTimer = randRange(this.rng, ...this.params.spawnInterval);
       this._spawn();
     }
