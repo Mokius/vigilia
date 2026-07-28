@@ -13,6 +13,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { buildTextures } from './textures.js';
+import { addSignage, addServices, addDoorDetail } from './detail.js';
 
 const V3 = THREE.Vector3;
 
@@ -56,7 +57,10 @@ export class Room {
     const metal = this._mat(tex.metal, 2, 2, { color: 0x5f646c, metalness: 0.6, roughness: 0.55 });
     const rust = this._mat(tex.rust, 1, 1, { color: 0x7a4f30, metalness: 0.25, roughness: 0.95 });
     const voidMat = new THREE.MeshStandardMaterial({ color: 0x030406, roughness: 1, side: THREE.BackSide });
-    this.metal = metal; this.rust = rust; this.voidMat = voidMat;
+    // Dark painted equipment. The big flat faces of the cabinet, pump and bench
+    // sit ~1 m from the lamp; in mid-grey metal the beam clipped them to white.
+    const equip = this._mat(tex.metal, 2, 2, { color: 0x2a2e33, metalness: 0.3, roughness: 0.9 });
+    this.metal = metal; this.rust = rust; this.voidMat = voidMat; this.equip = equip;
 
     const plane = (pw, ph, m) => new THREE.Mesh(new THREE.PlaneGeometry(pw, ph), m);
 
@@ -86,6 +90,11 @@ export class Room {
     this._clock(new V3(0, 2.28, -d + 0.06));
     this._props();
     this._lights();
+    // Painted plant signage, ceiling services and door hardware. Kept in
+    // detail.js so this file stays about structure and the accesses.
+    addSignage(this);
+    addServices(this);
+    addDoorDetail(this);
 
     // ---- shadow pockets S1..S6: the only legal lurking spots -------------
     this.shadowSpots = [
@@ -325,7 +334,7 @@ export class Room {
     // LEFT-BACK = maintenance bench. Something a night watchman actually uses,
     // and the natural place to find spare cells.
     const bench = new THREE.Group(); bench.position.set(-1.05, 0, 0.95); this.group.add(bench);
-    const top = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.06, 1.15), this.metal);
+    const top = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.06, 1.15), this.equip);
     top.position.set(0, 0.88, 0); top.castShadow = top.receiveShadow = true; bench.add(top);
     for (const [bx, bz] of [[-0.25, -0.5], [0.25, -0.5], [-0.25, 0.5], [0.25, 0.5]]) {
       const l = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.88, 0.06), this.metal);
@@ -347,9 +356,9 @@ export class Room {
 
     // RIGHT-BACK = electrical distribution. Tells you where the power is.
     const cab = new THREE.Group(); cab.position.set(w - 0.14, 1.05, 0.75); this.group.add(cab);
-    const box2 = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.85, 0.62), this.metal);
+    const box2 = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.85, 0.62), this.equip);
     box2.castShadow = box2.receiveShadow = true; cab.add(box2);
-    const doorPanel = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.78, 0.56), this.rust);
+    const doorPanel = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.78, 0.56), this.equip);
     doorPanel.position.set(-0.12, 0, 0.03); doorPanel.rotation.y = 0.35; doorPanel.castShadow = true; cab.add(doorPanel);
     // breaker rows behind the ajar panel
     const brk = new THREE.InstancedMesh(new THREE.BoxGeometry(0.03, 0.05, 0.02), this.metal, 12);
@@ -358,13 +367,12 @@ export class Room {
       brk.setMatrixAt(i, m);
     }
     brk.instanceMatrix.needsUpdate = true; cab.add(brk);
-    const warn = new THREE.Mesh(new THREE.PlaneGeometry(0.16, 0.16),
-      new THREE.MeshBasicMaterial({ color: 0x4a3c08, toneMapped: false }));
-    warn.position.set(-0.115, 0.3, 0.2); warn.rotation.y = -Math.PI / 2; cab.add(warn);
+    // (the old unlit yellow square here was replaced by the painted danger
+    //  panel in detail.js, which reads far better and cannot glow on its own)
 
     // RIGHT-FRONT = a dead pump with a hand valve: the "machine" of the room
     const pump = new THREE.Group(); pump.position.set(w - 0.32, 0, -0.95); this.group.add(pump);
-    const body2 = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.19, 0.55, 12), this.rust);
+    const body2 = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.19, 0.55, 12), this.equip);
     body2.position.y = 0.28; body2.castShadow = body2.receiveShadow = true; pump.add(body2);
     const flange = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.04, 12), this.metal);
     flange.position.y = 0.56; pump.add(flange);
