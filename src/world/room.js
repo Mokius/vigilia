@@ -142,8 +142,8 @@ export class Room {
     leaf.castShadow = leaf.receiveShadow = true; pivot.add(leaf);
     const handle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.14), this.metal);
     handle.position.set(0.9, 0.02, 0.08); pivot.add(handle);
-    this.door = { pivot, base: -0.56, open: 0, target: 0 };   // -32° at rest
-    pivot.rotation.y = this.door.base;
+    this.doorPivot = pivot;
+    pivot.rotation.y = 0;              // shut in its frame at the start of a night
   }
 
   _window(pos, ry) {
@@ -176,7 +176,7 @@ export class Room {
     for (let i = 0; i < 6; i++) { const s = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.07, 0.03), this.metal); s.position.set(0, -0.07 - i * 0.09, 0); s.castShadow = true; cover.add(s); }
     const plate = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.6, 0.014), this.metal);
     plate.position.set(0, -0.3, -0.02); cover.add(plate);
-    this.vent = { cover, open: 0, target: 0 };
+    this.ventCover = cover;
   }
 
   _hatch(pos) {
@@ -190,7 +190,7 @@ export class Room {
       const b = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.03, 0.05), this.metal); b.position.set(0, 0, 0.4 + i * 0.16); b.castShadow = true; lid.add(b);
       const c = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.03, 0.78), this.metal); c.position.set(i * 0.16, 0, 0.4); c.castShadow = true; lid.add(c);
     }
-    this.hatch = { lid, open: 0, target: 0 };
+    this.hatchLid = lid;
   }
 
   _clock(pos) {
@@ -344,13 +344,79 @@ export class Room {
   }
 
   // ---- animated state ----------------------------------------------------
-  // Opening an entry point starts with a TELL: a small, specific movement that
-  // warns you a beat before anything comes through. Each one behaves differently
-  // so you learn to read the room by its details.
-  _arm(o, v, tell) { if (!o) return; if (v && !o.target) o.tellT = tell; o.target = v; }
-  setVent(v) { this._arm(this.vent, v, 0.75); }     // grille rattles in its frame
-  setHatch(v) { this._arm(this.hatch, v, 0.95); }   // grate thumps from below
-  setDoor(v) { this._arm(this.door, v, 0.85); }     // creeps open a few centimetres
+  // ===== PERSISTENT ACCESSES ==============================================
+  // Every way into this room starts the night SHUT. Each time a creature pushes
+  // through, the access moves one notch further open and stays there — the room
+  // is permanently degraded by what has been coming in. Sound is emitted only on
+  // a real state change, so a fully-open door never "opens" again.
+  _initAccesses() {
+    const mk = (kind, steps, pan) => ({ kind, steps, pan, state: 0, anim: 0, target: 0, tellT: 0, pending: 0 });
+    this.accesses = {
+      door: mk('door', 3, -0.95),
+      vent: mk('vent', 3, -0.35),
+      hatch: mk('hatch', 3, 0.30),
+    };
+    this.onAccessSound = null;   // (kind, step, pan, closing) => void
+  }
+
+  resetAccesses() {
+    if (!this.accesses) this._initAccesses();
+    for (const a of Object.values(this.accesses)) { a.state = 0; a.anim = 0; a.target = 0; a.tellT = 0; a.pending = 0; }
+  }
+
+  /** A creature forces this access one notch wider. No-op once fully open. */
+  openStep(name) {
+    const a = this.accesses && this.accesses[name];
+    if (!a || a.state >= a.steps) return false;   // already wide open: nothing to hear
+    a.pending = 1; a.tellT = 0.42;                // it shudders first, then gives
+    return true;
+  }
+
+  /** A creature backs out. A partially open access is pulled shut a notch;
+   *  one already forced fully open stays that way for the rest of the night. */
+  closeStep(name) {
+    const a = this.accesses && this.accesses[name];
+    if (!a || a.state <= 0 || a.state >= a.steps) return false;
+    a.pending = -1; a.tellT = 0.12;
+    return true;
+  }
+
+  accessState(name) { const a = this.accesses && this.accesses[name]; return a ? a.state : 0; }
+
+  _applyAccess(a, dt, t) {
+    // the shudder that precedes any movement
+    if (a.tellT > 0) {
+      a.tellT -= dt;
+      if (a.tellT <= 0 && a.pending !== 0) {
+        a.state = Math.max(0, Math.min(a.steps, a.state + a.pending));
+        a.target = a.state / a.steps;
+        if (this.onAccessSound) this.onAccessSound(a.kind, a.state || 1, a.pan, a.pending < 0);
+        a.pending = 0;
+      }
+    }
+    a.anim += (a.target - a.anim) * Math.min(1, dt * 3.2);
+    const shudder = a.tellT > 0 ? Math.min(1, a.tellT / 0.42) : 0;
+
+    if (a.kind === 'door' && this.doorPivot) {
+      // 0 -> shut, 1 -> wide. Hinge groan wobble while it travels.
+      this.doorPivot.rotation.y = -a.anim * 1.05 + Math.sin(t * 46) * 0.012 * shudder;
+    } else if (a.kind === 'vent' && this.ventCover) {
+      this.ventCover.rotation.x = -a.anim * 1.5 + Math.sin(t * 74) * 0.06 * shudder;
+      this.ventCover.position.x = Math.sin(t * 91) * 0.007 * shudder;
+    } else if (a.kind === 'hatch' && this.hatchLid) {
+      const bump = shudder * Math.max(0, Math.sin(t * 15)) * 0.05;
+      this.hatchLid.position.y = 0.02 + bump;
+      this.hatchLid.rotation.x = -a.anim * 0.9;
+      this.hatchLid.position.z = -0.4 + a.anim * 0.34;
+      this.hatchLid.rotation.z = bump * 0.8;
+    }
+  }
+
+  update(dt) {
+    this._t = (this._t || 0) + dt;
+    if (!this.accesses) this._initAccesses();
+    for (const a of Object.values(this.accesses)) this._applyAccess(a, dt, this._t);
+  }
 
   /** frac 0..1 across the night -> clock hands (00:00 -> 06:00). */
   setClock(frac) {
@@ -360,56 +426,4 @@ export class Room {
     this.clock.minute.rotation.z = -((hours % 1)) * Math.PI * 2;
   }
 
-  update(dt) {
-    this._t = (this._t || 0) + dt;
-    const t = this._t, k = Math.min(1, dt * 3);
-
-    // VENT: the grille buzzes and chatters in its frame, then swings wide.
-    const V = this.vent;
-    if (V) {
-      if (V.tellT > 0) {
-        V.tellT -= dt;
-        V.open += (0.05 - V.open) * k;
-        const buzz = Math.min(1, V.tellT / 0.75);
-        V.cover.rotation.x = -V.open * 1.5 + Math.sin(t * 74) * 0.05 * buzz;
-        V.cover.position.x = Math.sin(t * 91) * 0.006 * buzz;
-      } else {
-        V.open += (V.target - V.open) * k;
-        V.cover.rotation.x = -V.open * 1.5;
-        V.cover.position.x *= 0.85;
-      }
-    }
-
-    // HATCH: something shoves it from underneath — it lifts and drops, twice,
-    // before it finally slides aside.
-    const H = this.hatch;
-    if (H) {
-      if (H.tellT > 0) {
-        H.tellT -= dt;
-        const bump = Math.max(0, Math.sin(t * 15)) * Math.min(1, H.tellT / 0.95);
-        H.lid.position.y = 0.02 + bump * 0.045;
-        H.lid.rotation.z = bump * 0.05;
-        H.open += (0.03 - H.open) * k;
-      } else {
-        H.open += (H.target - H.open) * k;
-        H.lid.position.y += (0.02 - H.lid.position.y) * k;
-        H.lid.rotation.z *= 0.86;
-      }
-      H.lid.rotation.x = -H.open * 1.15;
-      H.lid.position.z = -0.4 + H.open * 0.30;      // slides aside as it opens
-    }
-
-    // DOOR: creeps open a couple of centimetres and stops. Then it moves again.
-    const D = this.door;
-    if (D) {
-      if (D.tellT > 0) {
-        D.tellT -= dt;
-        D.open += (0.14 - D.open) * k * 0.8;
-        D.pivot.rotation.y = D.base - D.open * 0.75 + Math.sin(t * 5.5) * 0.004;
-      } else {
-        D.open += (D.target - D.open) * k * 0.7;
-        D.pivot.rotation.y = D.base - D.open * 0.75;
-      }
-    }
-  }
 }

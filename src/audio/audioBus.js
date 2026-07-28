@@ -102,8 +102,129 @@ export class AudioBus {
     const thp = ctx.createBiquadFilter(); thp.type = 'bandpass'; thp.frequency.value = 1400; thp.Q.value = 2; thp.connect(tg);
     [220, 233, 466, 590].forEach((f) => { const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = f; const g = ctx.createGain(); g.gain.value = 0.05; o.connect(g); g.connect(thp); o.start(); });
     this._bedGain = bed; this._tensionGain = tg;
-    // fade the bed in
-    bed.gain.setTargetAtTime(0.9, ctx.currentTime, 3);
+    // The hum is part of the room's identity, but it must sit UNDER everything
+    // else rather than dominate — it was fatiguing over a long session.
+    bed.gain.setTargetAtTime(0.42, ctx.currentTime, 3);
+
+    // Sparse piano layer: isolated notes with a lot of silence between them.
+    this._musicGain = ctx.createGain(); this._musicGain.gain.value = 0.0;
+    this._musicGain.connect(this.master);
+    this._musicGain.gain.setTargetAtTime(1, ctx.currentTime + 2, 4);
+    this._noteT = 6 + Math.random() * 6;
+    this._ambT = 3 + Math.random() * 5;
+  }
+
+  // ---- ambient factory life ------------------------------------------------
+  // One-shots fired at irregular intervals so no pattern is ever learnable.
+  _amb(kind, pan) {
+    const ctx = this.ctx, t = this._now(), { head } = this._out(pan, 0.35);
+    const noise = () => this._noiseSrc();
+    const env = (g, peak, atk, dur) => {
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(peak, t + atk);
+      g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+    };
+    if (kind === 'steam') {                       // pssshhh from a joint
+      const n = noise(), bp = ctx.createBiquadFilter(); bp.type = 'bandpass';
+      bp.frequency.setValueAtTime(3800, t); bp.frequency.exponentialRampToValueAtTime(1500, t + 1.4);
+      bp.Q.value = 0.7; const g = ctx.createGain(); env(g, 0.1, 0.08, 1.6);
+      n.connect(bp); bp.connect(g); g.connect(head); n.start(t); n.stop(t + 1.7);
+    } else if (kind === 'pipe') {                 // metal expanding: a slow tick-groan
+      const o = ctx.createOscillator(); o.type = 'triangle';
+      o.frequency.setValueAtTime(210, t); o.frequency.linearRampToValueAtTime(178, t + 0.9);
+      const bq = ctx.createBiquadFilter(); bq.type = 'bandpass'; bq.frequency.value = 900; bq.Q.value = 12;
+      const g = ctx.createGain(); env(g, 0.075, 0.05, 1.1);
+      o.connect(bq); bq.connect(g); g.connect(head); o.start(t); o.stop(t + 1.2);
+    } else if (kind === 'drip') {
+      const o = ctx.createOscillator(); o.type = 'sine';
+      o.frequency.setValueAtTime(1500, t); o.frequency.exponentialRampToValueAtTime(680, t + 0.07);
+      const g = ctx.createGain(); env(g, 0.06, 0.004, 0.16);
+      o.connect(g); g.connect(head); o.start(t); o.stop(t + 0.2);
+    } else if (kind === 'relay') {                // contactor clack
+      const n = noise(), hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 2200;
+      const g = ctx.createGain(); env(g, 0.09, 0.002, 0.06);
+      n.connect(hp); hp.connect(g); g.connect(head); n.start(t); n.stop(t + 0.09);
+    } else if (kind === 'beep') {                 // a panel still reporting to nobody
+      const o = ctx.createOscillator(); o.type = 'square'; o.frequency.value = 1180;
+      const g = ctx.createGain(); env(g, 0.028, 0.005, 0.14);
+      o.connect(g); g.connect(head); o.start(t); o.stop(t + 0.16);
+    } else if (kind === 'transformer') {          // mains buzz swelling then gone
+      const o = ctx.createOscillator(); o.type = 'sawtooth'; o.frequency.value = 100;
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 320;
+      const g = ctx.createGain(); env(g, 0.07, 0.6, 2.6);
+      o.connect(lp); lp.connect(g); g.connect(head); o.start(t); o.stop(t + 2.8);
+    } else if (kind === 'farknock') {             // something heavy, far away
+      const o = ctx.createOscillator(); o.type = 'sine';
+      o.frequency.setValueAtTime(88, t); o.frequency.exponentialRampToValueAtTime(44, t + 0.25);
+      const g = ctx.createGain(); env(g, 0.16, 0.006, 0.5);
+      o.connect(g); g.connect(head); o.start(t); o.stop(t + 0.55);
+    } else if (kind === 'creak') {                // structure settling
+      const o = ctx.createOscillator(); o.type = 'sawtooth';
+      o.frequency.setValueAtTime(64, t); o.frequency.linearRampToValueAtTime(118, t + 1.1);
+      const bq = ctx.createBiquadFilter(); bq.type = 'bandpass'; bq.frequency.value = 640; bq.Q.value = 9;
+      const g = ctx.createGain(); env(g, 0.07, 0.2, 1.3);
+      o.connect(bq); bq.connect(g); g.connect(head); o.start(t); o.stop(t + 1.4);
+    } else if (kind === 'fan') {                  // an extractor spinning down
+      const n = noise(), lp = ctx.createBiquadFilter(); lp.type = 'lowpass';
+      lp.frequency.setValueAtTime(900, t); lp.frequency.exponentialRampToValueAtTime(260, t + 2.4);
+      const g = ctx.createGain(); env(g, 0.06, 0.5, 2.6);
+      const lfo = ctx.createOscillator(); lfo.frequency.value = 7.5;
+      const lg = ctx.createGain(); lg.gain.value = 0.02; lfo.connect(lg); lg.connect(g.gain); lfo.start(t); lfo.stop(t + 2.7);
+      n.connect(lp); lp.connect(g); g.connect(head); n.start(t); n.stop(t + 2.7);
+    } else {                                      // 'starter': machinery failing to catch
+      const o = ctx.createOscillator(); o.type = 'sawtooth';
+      const g = ctx.createGain(); g.gain.value = 0.0001;
+      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 420;
+      o.connect(lp); lp.connect(g); g.connect(head); o.start(t);
+      for (let i = 0; i < 3; i++) {
+        const s = t + i * 0.42;
+        o.frequency.setValueAtTime(42, s); o.frequency.linearRampToValueAtTime(96, s + 0.16);
+        o.frequency.linearRampToValueAtTime(38, s + 0.34);
+        g.gain.setValueAtTime(0.0001, s); g.gain.exponentialRampToValueAtTime(0.1, s + 0.06);
+        g.gain.exponentialRampToValueAtTime(0.0008, s + 0.36);
+      }
+      o.stop(t + 1.4);
+    }
+  }
+
+  // A very quiet, slow piano-like note. Sparse by design: the silence between
+  // notes is doing the work.
+  _note(freq) {
+    const ctx = this.ctx, t = this._now();
+    const out = ctx.createGain(); out.gain.value = 0.055; out.connect(this._musicGain);
+    // struck-string-ish: a couple of partials with fast attack, long tail
+    [[1, 1], [2, 0.32], [3.01, 0.12]].forEach(([mul, amp]) => {
+      const o = ctx.createOscillator(); o.type = 'triangle'; o.frequency.value = freq * mul;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.exponentialRampToValueAtTime(amp, t + 0.02);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + 3.4);
+      o.connect(g); g.connect(out); o.start(t); o.stop(t + 3.5);
+    });
+  }
+
+  /** Call every frame. Drives the ambient one-shots and the sparse music. */
+  updateAmbience(dt) {
+    if (!this.ready || !this.enabled) return;
+    const KINDS = ['steam', 'pipe', 'drip', 'relay', 'beep', 'transformer', 'farknock', 'creak', 'fan', 'starter'];
+    this._ambT -= dt;
+    if (this._ambT <= 0) {
+      // irregular gaps, and quieter/rarer while something is stalking you
+      this._ambT = 3.5 + Math.random() * Math.random() * 14;
+      if (this._tension < 0.75) this._amb(KINDS[(Math.random() * KINDS.length) | 0], Math.random() * 2 - 1);
+    }
+    // A minor, unresolved set. Notes are isolated and never form a phrase.
+    const SCALE = [146.83, 174.61, 196.00, 220.00, 261.63, 293.66, 349.23];
+    this._noteT -= dt;
+    if (this._noteT <= 0) {
+      this._noteT = 7 + Math.random() * 14;
+      if (this._tension < 0.5) this._note(SCALE[(Math.random() * SCALE.length) | 0]);
+    }
+    // music yields completely to gameplay audio when the room gets dangerous
+    if (this._musicGain) {
+      const want = this._tension > 0.45 ? 0 : 1 - this._tension * 1.6;
+      this._musicGain.gain.setTargetAtTime(Math.max(0, want), this._now(), 0.5);
+    }
   }
 
   setTension(x) {
@@ -174,7 +295,8 @@ export class AudioBus {
     if (!this.ready) return;
     const ctx = this.ctx;
     const t = ctx.currentTime + 0.012;         // tiny lookahead = sample-accurate
-    const ATT = 0.004, SUS = 0.42, REL = 0.34; // instant attack, held, then gone
+    // Deeper, longer, heavier: it has to sit ON the player for a while.
+    const ATT = 0.004, SUS = 0.95, REL = 0.6;  // instant attack, long hold, slow decay
     const END = ATT + SUS + REL;
 
     // slam everything else down so the scream owns the whole mix
@@ -183,11 +305,12 @@ export class AudioBus {
     this.duck.gain.setTargetAtTime(1, t + END + 0.25, 0.7);
 
     const V = {
-      shriek:        { base: [560, 571, 848, 1123], drive: 5.0, sub: [160, 46], noise: 0.55, hiss: 2600 },
-      gurgle:        { base: [96, 101, 148, 214],   drive: 8.0, sub: [128, 30], noise: 0.95, hiss: 700 },
-      whisperscream: { base: [352, 361, 628, 905],  drive: 4.0, sub: [116, 40], noise: 1.05, hiss: 3400 },
-      roar:          { base: [152, 159, 236, 318],  drive: 7.0, sub: [148, 34], noise: 0.8,  hiss: 1200 },
-    }[variant] || { base: [190, 197, 286, 402], drive: 5.0, sub: [136, 38], noise: 0.7, hiss: 2000 };
+      // Every voice dropped roughly an octave: chest and throat, not whistle.
+      shriek:        { base: [232, 239, 349, 462], drive: 6.5, sub: [110, 26], noise: 0.5,  hiss: 1500 },
+      gurgle:        { base: [62, 66, 97, 141],    drive: 9.0, sub: [96, 22],  noise: 0.9,  hiss: 480 },
+      whisperscream: { base: [176, 182, 314, 452], drive: 5.5, sub: [104, 25], noise: 1.0,  hiss: 2100 },
+      roar:          { base: [84, 89, 131, 176],   drive: 8.5, sub: [116, 24], noise: 0.75, hiss: 760 },
+    }[variant] || { base: [104, 110, 158, 220], drive: 6.5, sub: [108, 25], noise: 0.65, hiss: 1200 };
 
     // --- master envelope: near-vertical attack, flat hold, fast release ------
     const env = ctx.createGain();
@@ -257,6 +380,18 @@ export class AudioBus {
     air.connect(ahp); ahp.connect(ag); ag.connect(this.scareBus);
     air.start(t); air.stop(t + END);
 
+    // --- 6. the tear: a slow, grinding low layer that makes it oppressive ---
+    const tear = ctx.createOscillator(); tear.type = 'square';
+    tear.frequency.setValueAtTime(V.base[0] * 0.5, t);
+    tear.frequency.exponentialRampToValueAtTime(V.base[0] * 0.28, t + END);
+    const tlp = ctx.createBiquadFilter(); tlp.type = 'lowpass'; tlp.frequency.value = 340; tlp.Q.value = 3;
+    const tg2 = ctx.createGain(); tg2.gain.value = 0.55;
+    // slow amplitude wobble = a throat running out of air
+    const wob = ctx.createOscillator(); wob.type = 'sine'; wob.frequency.value = 5.5;
+    const wg = ctx.createGain(); wg.gain.value = 0.22; wob.connect(wg); wg.connect(tg2.gain);
+    tear.connect(tlp); tlp.connect(tg2); tg2.connect(env);
+    tear.start(t); wob.start(t); tear.stop(t + END); wob.stop(t + END);
+
     return { at: t, attack: ATT, sustain: SUS, total: END };
   }
 
@@ -300,6 +435,66 @@ export class AudioBus {
     const ng = ctx.createGain(); ng.gain.setValueAtTime(amp * 0.5, t);
     ng.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
     n.connect(bp); bp.connect(ng); ng.connect(head); n.start(t); n.stop(t + 0.15);
+  }
+
+  /**
+   * Mechanical sound for an access changing state. `kind` is the access type and
+   * `step` is which notch it just moved to, so the first crack of a door and its
+   * final swing sound different. Nothing plays once an access is already open.
+   */
+  accessSound(kind, step = 1, pan = 0, closing = false) {
+    if (!this.ready || !this.enabled) return;
+    const ctx = this.ctx, t = this._now(), { head } = this._out(pan, 0.12);
+    const k = Math.min(2, Math.max(0, step - 1));
+    if (kind === 'door') {
+      // 1st: a short dry crack. 2nd: longer hinge groan. 3rd: full swing + thud.
+      const dur = [0.45, 0.95, 1.35][k];
+      const f0 = [120, 74, 58][k], f1 = [190, 148, 122][k];
+      const o = ctx.createOscillator(); o.type = 'sawtooth';
+      o.frequency.setValueAtTime(closing ? f1 : f0, t);
+      o.frequency.linearRampToValueAtTime(closing ? f0 : f1, t + dur * 0.85);
+      const bq = ctx.createBiquadFilter(); bq.type = 'bandpass'; bq.frequency.value = 720 + k * 120; bq.Q.value = 8;
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(0.2 + k * 0.05, t + 0.08);
+      g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      const lfo = ctx.createOscillator(); lfo.type = 'square'; lfo.frequency.value = 9 + k * 4;
+      const lg = ctx.createGain(); lg.gain.value = 0.08; lfo.connect(lg); lg.connect(g.gain);
+      o.connect(bq); bq.connect(g); g.connect(head);
+      o.start(t); lfo.start(t); o.stop(t + dur + 0.05); lfo.stop(t + dur + 0.05);
+      if (k === 2 || closing) {  // the leaf hitting its stop
+        const th = ctx.createOscillator(); th.type = 'sine';
+        const s2 = t + dur * 0.82;
+        th.frequency.setValueAtTime(96, s2); th.frequency.exponentialRampToValueAtTime(40, s2 + 0.2);
+        const tgn = ctx.createGain(); tgn.gain.setValueAtTime(0.5, s2); tgn.gain.exponentialRampToValueAtTime(0.001, s2 + 0.26);
+        th.connect(tgn); tgn.connect(head); th.start(s2); th.stop(s2 + 0.3);
+      }
+    } else if (kind === 'vent') {
+      // grille chattering in its frame, then the fixings letting go
+      const n = this._noiseSrc();
+      const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2400 + k * 700; bp.Q.value = 6;
+      const dur = [0.4, 0.7, 0.9][k];
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t); g.gain.linearRampToValueAtTime(0.2 + k * 0.06, t + 0.03);
+      g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+      const lfo = ctx.createOscillator(); lfo.type = 'square'; lfo.frequency.value = 26 - k * 6;
+      const lg = ctx.createGain(); lg.gain.value = 0.14; lfo.connect(lg); lg.connect(g.gain);
+      n.connect(bp); bp.connect(g); g.connect(head);
+      n.start(t); lfo.start(t); n.stop(t + dur + 0.05); lfo.stop(t + dur + 0.05);
+    } else {   // hatch / grate
+      // cast iron shoved on concrete: impact then a gritty scrape
+      const o = ctx.createOscillator(); o.type = 'sine';
+      o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(46, t + 0.22);
+      const g = ctx.createGain(); g.gain.setValueAtTime(0.55, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
+      o.connect(g); g.connect(head); o.start(t); o.stop(t + 0.32);
+      if (k > 0 || closing) {
+        const n = this._noiseSrc();
+        const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1700; bp.Q.value = 2.2;
+        const ng = ctx.createGain();
+        ng.gain.setValueAtTime(0.0001, t + 0.05); ng.gain.linearRampToValueAtTime(0.16, t + 0.12);
+        ng.gain.exponentialRampToValueAtTime(0.001, t + 0.8);
+        n.connect(bp); bp.connect(ng); ng.connect(head); n.start(t + 0.05); n.stop(t + 0.85);
+      }
+    }
   }
 
   // Heavy hinge groan — a door being pushed open somewhere in the dark.

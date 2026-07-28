@@ -263,7 +263,13 @@ export class Enemy {
             ev.push({ type: 'scare', payload: { type: this.type, pan: this.pan, enemy: this } });
             return ev;
           }
-          if (this.state === EState.RETREAT && this.station <= 0) { this.state = EState.HIDE; this._hideT = 0.45; }
+          if (this.state === EState.RETREAT && this.station <= 0) {
+            this.state = EState.HIDE; this._hideT = 0.45;
+            // It leaves the way it came in and pulls the access back with it.
+            // A door already forced fully open stays open — room.closeStep()
+            // is the one that decides, so persistence is respected.
+            if (this.route.access) ev.push({ type: 'access', payload: { name: this.route.access, opening: false } });
+          }
           if (this.state === EState.CROSS && this.station >= last) { this.state = EState.DONE; }
           ev.push({ type: 'step', payload: { pan: this.pan, p: this.p } });
         }
@@ -274,7 +280,9 @@ export class Enemy {
       // --- holding: motionless, watching -----------------------------------
       if (this.state === EState.APPROACH && this.lit > 0.35) {
         this.dwell += dt * this.lit;
+        // it flinches the instant the beam lands, and keeps flinching harder
         this._playIntent('peek');
+        this.holdT = Math.max(this.holdT, 0.25);   // pinned: it cannot advance while lit
         if (this.dwell >= this.type.banishTime) {
           this.state = EState.RETREAT;
           ev.push({ type: 'banish', payload: { pan: this.pan, name: this.type.name } });
@@ -290,7 +298,13 @@ export class Enemy {
       this._windup = clamp(1 - this.holdT / 0.22, 0, 1);
       if (this.holdT <= 0) {
         const dir = this.state === EState.RETREAT ? -1 : 1;
-        this._beginDash(clamp(this.station + dir, 0, last));
+        const to = clamp(this.station + dir, 0, last);
+        // Working its way in physically forces the access wider; backing out
+        // lets it fall shut again (unless it has already been forced open).
+        if (this.route.access && to !== this.station && this.station <= 1) {
+          ev.push({ type: 'access', payload: { name: this.route.access, opening: dir > 0 } });
+        }
+        this._beginDash(to);
       }
       if (this.state === EState.CROSS) this._setOpacity(this.station >= last - 1 ? 0.35 : 1);
       this._cues(dt, ev);
@@ -341,6 +355,36 @@ export class Enemy {
       this.body.position.y = d ? Math.sin(this.dashT * 60) * 0.03 : Math.sin(ph * 2) * 0.005;
     }
 
+    // ---- REACTION TO THE LIGHT --------------------------------------------
+    // Exposure builds while the beam holds. The body twists away, cowers and
+    // trembles harder the longer it is caught, so the flashlight reads as a
+    // weapon rather than a detector.
+    const exTarget = clamp(this.dwell / (this.type.banishTime || 0.6), 0, 1);
+    this._ex = (this._ex || 0) + (exTarget - (this._ex || 0)) * Math.min(1, dt * 10);
+    const ex = this._ex;
+    if (this._baseQuat && this.state !== EState.ATTACK) {
+      this.group.quaternion.copy(this._baseQuat);
+      if (ex > 0.01) {
+        const away = this.pan >= 0 ? 1 : -1;
+        this.group.rotateZ(away * 0.30 * ex + Math.sin(this._t * 26) * 0.055 * ex);
+        this.group.rotateX(-0.26 * ex);                       // recoiling back
+        this.group.position.y = this._basePos.y - 0.07 * ex;  // cowering down
+        this.group.position.x = this._basePos.x + Math.sin(this._t * 31) * 0.012 * ex;
+      } else if (this._basePos) {
+        this.group.position.copy(this._basePos);
+      }
+    }
+    if (this.headBone && ex > 0.01) {
+      // turns its face out of the beam
+      this.headBone.rotation.z = (this.headBone.userData._z ?? (this.headBone.userData._z = this.headBone.rotation.z)) + 0.5 * ex;
+    }
+    if (this.body && this.body.userData.proc && ex > 0.01) {
+      const P = this.body.userData.proc;
+      P.chest.rotation.x = -0.13 - 0.5 * ex;                  // folds away from it
+      P.head.rotation.z = 0.55 * ex;
+      P.arms.forEach((a, i) => { a.sh.rotation.x = -1.05 * ex; a.sh.rotation.z = a.sx * (0.05 + 0.5 * ex); });
+    }
+
     // eyes: billboarded slightly toward the player so they never sink into the skull
     const hw = this.headWorld;
     const toEye = this.eye.clone().sub(hw).normalize();
@@ -348,7 +392,9 @@ export class Enemy {
     const dim = this.state === EState.RETREAT || this.state === EState.HIDE;
     const k = dim ? 0.12 : clamp(0.45 + this.p * 0.55 + (this.lit > 0.3 ? 0.25 : 0), 0, 1);
     // eyes obey the same fade as the body, so nothing pops in or out
-    this.eyeMat.opacity = k * this.opacity * (0.85 + 0.15 * Math.sin(this._t * 9 + this._ph));
+    // Under direct light the glow yields to the actual lit face — no lamps.
+    const litFade = 1 - 0.9 * clamp(this.lit * 1.4, 0, 1);
+    this.eyeMat.opacity = k * this.opacity * litFade * (0.85 + 0.15 * Math.sin(this._t * 9 + this._ph)) * 0.6;
     this.eyes.visible = this.state !== EState.DONE;
   }
 

@@ -8,7 +8,7 @@ export const ENEMY_TYPES = [
   {
     id: 'romero', name: 'ROMERO', modelKey: 'romero',
     height: 1.85,
-    routes: ['door', 'corridor', 'corner_l', 'corner_r'],
+    routes: ['door', 'corridor'],
     crossRoute: 'corridorCross',
     holdMin: 1.5, holdMax: 3.4,     // stands motionless, watching
     dashMin: 0.12, dashMax: 0.19,   // then crosses to the next station in a blink

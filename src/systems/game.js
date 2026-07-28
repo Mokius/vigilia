@@ -26,6 +26,8 @@ export class Game {
     this.shake = 0;
     this.flash = 0;
     this._dwell = {};
+    // Every physical state change of an access reports its own mechanical sound.
+    this.room.onAccessSound = (kind, step, pan, closing) => this.audio.accessSound(kind, step, pan, closing);
     this._wire();
   }
 
@@ -63,6 +65,8 @@ export class Game {
   }
 
   update(dt) {
+    // The building keeps breathing in every state, menus included.
+    this.audio.updateAmbience(dt);
     this.scareFX = damp(this.scareFX, this.state === GState.SCARE ? 1 : 0, 6, dt);
     this.shake = damp(this.shake, 0, 3.2, dt);
 
@@ -137,7 +141,7 @@ export class Game {
     this.audio.setTension(0);
     // The audio returns its own timing; the visuals are driven from it so image
     // and sound are one event rather than two things that merely overlap.
-    this._scareAudio = this.audio.scream(scared.type.scream) || { attack: 0.004, sustain: 0.42, total: 0.76 };
+    this._scareAudio = this.audio.scream(scared.type.scream) || { attack: 0.004, sustain: 0.95, total: 1.55 };
     this.onPointerUnlock && this.onPointerUnlock();
     // kill every other light: for the duration there is only the thing's face
     if (this.room.lights) {
@@ -168,7 +172,7 @@ export class Game {
   tickScare(dt) {
     if (this.state !== GState.SCARE) return;
     this._scareT += dt;
-    const T = this._scareAudio || { attack: 0.004, sustain: 0.42, total: 0.76 };
+    const T = this._scareAudio || { attack: 0.004, sustain: 0.95, total: 1.55 };
     const t = this._scareT;
 
     // FLASH: hard white on the attack, gone in ~110 ms so it reads as a strike
@@ -188,7 +192,7 @@ export class Game {
       // strobe the beam so the face is lit in stutters, never cleanly
       this.flashlight.spot.intensity = (this._flSaved || 55) * (t < sustainEnd ? (Math.random() < 0.75 ? 1.9 : 0.25) : 1);
     }
-    if (this._scareT > 1.7) {
+    if (this._scareT > 2.25) {
       const left = this.pickups.remaining;      // read BEFORE clearing the field
       this.manager.stop(); this.pickups.clear();
       this._scareEnemy = null;

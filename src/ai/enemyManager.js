@@ -31,7 +31,7 @@ export class EnemyManager {
   stop() {
     for (const e of this.enemies) e.dispose();
     this.enemies = []; this.active = false; this.tension = 0;
-    this.room.setVent(0); this.room.setHatch(0); this.room.setDoor(0);
+    if (this.room.resetAccesses) this.room.resetAccesses();
   }
 
   _busyRoutes() { return new Set(this.enemies.filter(LIVE).map((e) => e.routeName)); }
@@ -81,6 +81,13 @@ export class EnemyManager {
       const evs = e.update(dt, flashlight);
       for (const ev of evs) {
         if (ev.type === 'scare') scared = ev.payload;
+        // Creatures physically work the accesses open, and pull them back when
+        // driven off. The room keeps that state for the rest of the night.
+        if (ev.type === 'access') {
+          if (ev.payload.opening) this.room.openStep(ev.payload.name);
+          else this.room.closeStep(ev.payload.name);
+          continue;
+        }
         this.bus.emit(ev.type, ev.payload);
       }
       e.animate(dt);
@@ -99,11 +106,6 @@ export class EnemyManager {
       for (const e of this.enemies) e.setCastShadow(true);
     }
 
-    // physical openings follow whoever is actually using them
-    const routes = new Set(this.enemies.filter(LIVE).map((e) => e.routeName));
-    this.room.setVent(routes.has('vent') ? 1 : 0);
-    this.room.setHatch(routes.has('hatch') ? 1 : 0);
-    this.room.setDoor(routes.has('door') ? 1 : 0);
 
     this.tension += (maxThreat - this.tension) * Math.min(1, dt * 2);
     return { tension: this.tension, scared };

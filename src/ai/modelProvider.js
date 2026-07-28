@@ -109,7 +109,7 @@ export function measureHeight(root) {
  * albedo so a textured realistic model reads as something wet in the dark
  * (we TINT rather than replace, to keep the detail we paid for).
  */
-export function prepareModel(root, targetHeight, { darken = 0.45, roughness = 0.78 } = {}) {
+export function prepareModel(root, targetHeight, { darken = 0.26, roughness = 0.94 } = {}) {
   const m = measureHeight(root);
   if (m) {
     const s = targetHeight / m.height;
@@ -125,10 +125,17 @@ export function prepareModel(root, targetHeight, { darken = 0.45, roughness = 0.
     const mats = Array.isArray(o.material) ? o.material : [o.material];
     for (const mat of mats) {
       if (!mat) continue;
+      // Opaque, heavy, physically plain: same treatment as the room's surfaces.
+      // Anything shiny or emissive made them read as lit props floating in the
+      // scene instead of objects standing in it.
       if (mat.color) mat.color.multiplyScalar(darken);
       if ('roughness' in mat) mat.roughness = roughness;
-      if ('metalness' in mat) mat.metalness = Math.min(0.35, mat.metalness ?? 0.1);
-      if (mat.emissive) mat.emissive.setRGB(0, 0, 0);
+      if ('metalness' in mat) mat.metalness = 0.05;
+      if (mat.emissive) { mat.emissive.setRGB(0, 0, 0); mat.emissiveIntensity = 0; }
+      if (mat.envMapIntensity !== undefined) mat.envMapIntensity = 0.15;
+      if ('sheen' in mat) mat.sheen = 0;
+      if ('clearcoat' in mat) mat.clearcoat = 0;
+      if ('specularIntensity' in mat) mat.specularIntensity = 0.15;
       mat.needsUpdate = true;
     }
   });

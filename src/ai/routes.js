@@ -11,8 +11,7 @@
 export const ROUTES = {
   // --- R1: the left door, ajar. Eyes in the slit, then it leans out. --------
   door: {
-    pan: -0.95, surface: 'left',
-    openVent: false,
+    pan: -0.95, surface: 'left', access: 'door',
     points: [
       [-1.34, 0, 0.35, 'slit'],     // inside the recess, only eyes in the gap
       [-1.16, 0, 0.32, 'peek'],     // leans around the door edge
@@ -24,7 +23,7 @@ export const ROUTES = {
 
   // --- R2: the service corridor. Backlit silhouette walking up the hall. ---
   corridor: {
-    pan: 0.0, surface: 'front',
+    pan: 0.0, surface: 'front', access: null,   // a permanent opening
     points: [
       [0.00, 0, -4.20, 'far'],      // silhouette against the red exit light
       [0.00, 0, -3.00, 'hall'],
@@ -37,7 +36,7 @@ export const ROUTES = {
 
   // --- R2b: crosses the corridor without ever entering. Pure false alarm. --
   corridorCross: {
-    pan: 0.0, surface: 'front', cross: true,
+    pan: 0.0, surface: 'front', cross: true, access: null,
     points: [
       [-0.95, 0, -2.40, 'cross'],
       [-0.35, 0, -2.40, 'cross'],
@@ -48,8 +47,7 @@ export const ROUTES = {
 
   // --- R3: the low vent. Half a body pushes out, then drops and crawls. ----
   vent: {
-    pan: -0.35, surface: 'front',
-    openVent: true,
+    pan: -0.35, surface: 'front', access: 'vent',
     points: [
       [-0.90, 0.34, -1.44, 'emerge'], // inside the duct, pushing the cover
       [-0.90, 0.30, -1.22, 'emerge'], // half out
@@ -61,8 +59,7 @@ export const ROUTES = {
 
   // --- R4: the floor hatch. Pushes the grate up from below. ----------------
   hatch: {
-    pan: 0.30, surface: 'floor',
-    openHatch: true,
+    pan: 0.30, surface: 'floor', access: 'hatch',
     points: [
       [0.55, -0.35, 0.45, 'emerge'],  // still down in the pit
       [0.55, -0.05, 0.45, 'emerge'],  // head and shoulders out
@@ -74,7 +71,7 @@ export const ROUTES = {
 
   // --- R5: the smashed window. A leg over the sill, then in. ---------------
   window: {
-    pan: 0.95, surface: 'right',
+    pan: 0.95, surface: 'right', access: null,  // already smashed open
     points: [
       [1.44, 0.62, -0.15, 'slit'],    // face behind the opening
       [1.34, 0.62, -0.15, 'peek'],
@@ -84,25 +81,6 @@ export const ROUTES = {
     ],
   },
 
-  // --- Shadow corners: it just stands there, watching. ---------------------
-  corner_l: {
-    pan: -0.6, surface: 'left',
-    points: [
-      [-1.30, 0, -1.30, 'stare'],
-      [-1.05, 0, -1.05, 'stare'],
-      [-0.70, 0, -0.70, 'inside'],
-      [-0.35, 0, -0.35, 'close'],
-    ],
-  },
-  corner_r: {
-    pan: 0.6, surface: 'right',
-    points: [
-      [1.30, 0, -1.30, 'stare'],
-      [1.05, 0, -1.05, 'stare'],
-      [0.70, 0, -0.70, 'inside'],
-      [0.35, 0, -0.35, 'close'],
-    ],
-  },
 };
 
 // Position + stage at normalized progress p in [0,1] along a route.
