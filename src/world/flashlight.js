@@ -167,7 +167,10 @@ export class Flashlight {
    * Used as cover: a creature leaving asks for this so its removal happens
    * behind a genuine loss of light rather than behind a fade.
    */
-  stutter(seconds) { this._stutterT = Math.max(this._stutterT || 0, seconds); }
+  stutter(seconds) {
+    this._stutterT = Math.max(this._stutterT || 0, seconds);
+    this._stutterTotal = this._stutterT;
+  }
 
   /**
    * Angle (radians) between the beam axis and a world point. The lit cone is
@@ -221,12 +224,20 @@ export class Flashlight {
     let flick = 1;
     if (this._stutterT > 0) {
       this._stutterT -= dt;
-      flick = Math.random() < 0.55 ? 0.06 + Math.random() * 0.12 : 0.85;
+      // A GUARANTEED blackout, not a random one. The creature's removal happens
+      // at a fixed point inside this window, so if the dark frames are chosen by
+      // coin flip the two only sometimes coincide — and when they don't, the body
+      // is deleted in plain sight at half beam. The dip between 50% and 85% of
+      // the window is deterministic, and that is where the removal lands.
+      const u = 1 - clamp(this._stutterT / (this._stutterTotal || 1), 0, 1);
+      flick = (u > 0.50 && u < 0.85) ? 0.02
+            : (Math.random() < 0.5 ? 0.10 + Math.random() * 0.14 : 0.8);
     } else if (this.battery <= 0) { flick = 0; }
     else if (this.battery < cfg.battery.flickerBelow) {
       flick = Math.random() < 0.08 ? 0.15 + Math.random() * 0.3 : 1;
     }
-    this._flick += (flick - this._flick) * 0.5;
+    // Snap down hard, ease back up: a lamp cutting out is instant, recovering is not.
+    this._flick += (flick - this._flick) * (flick < this._flick ? 0.92 : 0.35);
 
     // Point the spotlight + beam.
     const aim = this.eye.clone().add(this.dir);

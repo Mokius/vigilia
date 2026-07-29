@@ -412,9 +412,25 @@ export class Enemy {
     if (this.state === EState.CROSS || this.state === EState.APPROACH || this.state === EState.RETREAT) {
       const last = this.route.points.length - 1;
 
+      // ---- PRESSING ---------------------------------------------------------
+      // Held against a shut access: the leaf tracks a slow, uneven shove. Release
+      // it and the leaf swings back on its own, which is the retreat case.
+      if (this._pressing > 0 && this.route.access && this.room) {
+        this._pressing -= dt;
+        const shove = 0.35 + 0.32 * Math.sin(this._t * 7.5) + 0.12 * Math.sin(this._t * 23);
+        this.room.push(this.route.access, clamp(shove, 0, 1) * 0.55);
+      }
+
       if (this.dashing) {
         this.dashT += dt;
         const k = clamp(this.dashT / this.dashDur, 0, 1);
+        // ---- CROSSING: the body carries the leaf with it ---------------------
+        // While it is actually going through, the access is driven straight from
+        // the crossing progress, so door and shoulder move together instead of
+        // the leaf easing on a timer of its own while a body slides past it.
+        if (this.route.access && this.room && this.toStation > this.fromStation) {
+          this.room.push(this.route.access, k);
+        }
         // easeInOutQuint: violent in the middle, lands hard
         const e = k < 0.5 ? 16 * k * k * k * k * k : 1 - Math.pow(-2 * k + 2, 5) / 2;
         this.p = (this.fromStation + (this.toStation - this.fromStation) * e) / last;
@@ -520,10 +536,12 @@ export class Enemy {
         const dir = this.state === EState.RETREAT ? -1 : 1;
         const to = clamp(this.station + dir, 0, last);
         if (dir > 0 && !this._clearedFor(to)) {
-          // Not enough room to get through yet: work the access wider and WAIT.
-          // It never squeezes through geometry that hasn't moved.
+          // Not enough room to get through yet: LEAN ON IT and wait. It never
+          // squeezes through geometry that has not moved, and now the leaf visibly
+          // gives a few centimetres under the pressure before the notch releases.
           if (this.route.access) ev.push({ type: 'access', payload: { name: this.route.access, opening: true } });
           this.holdT = 0.55;           // try again once the mechanism has moved
+          this._pressing = 0.55;       // the shoulder against it
           this._playIntent('peek');    // straining at the gap meanwhile
         } else {
           if (this.route.access && dir < 0 && to !== this.station && this.station <= 1) {

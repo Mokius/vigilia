@@ -15,6 +15,8 @@ import { CONFIG } from '../config.js';
 import { buildTextures } from './textures.js';
 import { addSignage, addServices, addDoorDetail, addBatteryGauge, updateBatteryGauge, paintedPlate } from './detail.js';
 
+const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+
 const V3 = THREE.Vector3;
 
 function tiled(maps, rx, ry) {
@@ -1247,7 +1249,7 @@ export class Room {
   // is permanently degraded by what has been coming in. Sound is emitted only on
   // a real state change, so a fully-open door never "opens" again.
   _initAccesses() {
-    const mk = (kind, steps, pan) => ({ kind, steps, pan, state: 0, anim: 0, target: 0, tellT: 0, pending: 0 });
+    const mk = (kind, steps, pan) => ({ kind, steps, pan, state: 0, anim: 0, target: 0, tellT: 0, pending: 0, push: 0, pushT: 0 });
     this.accesses = {
       door: mk('door', 3, -0.95),
       vent: mk('vent', 3, -0.35),
@@ -1261,7 +1263,7 @@ export class Room {
 
   resetAccesses() {
     if (!this.accesses) this._initAccesses();
-    for (const a of Object.values(this.accesses)) { a.state = 0; a.anim = 0; a.target = 0; a.tellT = 0; a.pending = 0; }
+    for (const a of Object.values(this.accesses)) { a.state = 0; a.anim = 0; a.target = 0; a.tellT = 0; a.pending = 0; a.push = 0; a.pushT = 0; }
   }
 
   /** A creature forces this access one notch wider. No-op once fully open. */
@@ -1288,7 +1290,24 @@ export class Room {
   accessOpenness(name) {
     const a = this.accesses && this.accesses[name];
     if (!a) return { state: 99, steps: 1, anim: 1, moving: false };
-    return { state: a.state, steps: a.steps, anim: a.anim, moving: a.tellT > 0 || Math.abs(a.target - a.anim) > 0.04 };
+    return { state: a.state, steps: a.steps, anim: a.anim, moving: a.tellT > 0 || a.pushT > 0 || Math.abs(a.target - a.anim) > 0.04 };
+  }
+
+  /**
+   * Lean on an access. `frac` is 0..1 of the way to the NEXT notch, so a creature
+   * crossing a threshold can drive the leaf directly from its own progress.
+   *
+   * This is what makes an access feel like an object rather than a state machine:
+   * the previous version opened a notch on a timer and the creature waited for
+   * it, so the two never touched. Now the door moves BECAUSE something is pushing
+   * it, at the speed that thing is moving, and stops the moment it stops pushing.
+   */
+  push(name, frac) {
+    const a = this.accesses && this.accesses[name];
+    if (!a) return;
+    a.pushT = 0.12;                       // released if nothing renews it
+    const next = Math.min(1, (a.state + 1) / a.steps);
+    a.push = Math.max(a.state / a.steps, Math.min(next, a.state / a.steps + (next - a.state / a.steps) * clamp01(frac)));
   }
 
   _applyAccess(a, dt, t) {
@@ -1302,7 +1321,16 @@ export class Room {
         a.pending = 0;
       }
     }
-    a.anim += (a.target - a.anim) * Math.min(1, dt * 3.2);
+    // A live push overrides the eased travel: the leaf tracks the body directly.
+    // When the push is released the leaf falls back on its own, which is what
+    // gives you "it started to open, then swung shut again" for free.
+    if (a.pushT > 0) {
+      a.pushT -= dt;
+      a.anim += (Math.max(a.target, a.push || 0) - a.anim) * Math.min(1, dt * 14);
+    } else {
+      a.push = 0;
+      a.anim += (a.target - a.anim) * Math.min(1, dt * 3.2);
+    }
     const shudder = a.tellT > 0 ? Math.min(1, a.tellT / 0.42) : 0;
 
     if (a.kind === 'door' && this.doorPivot) {

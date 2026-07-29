@@ -474,6 +474,34 @@ export class AudioBus {
         const tgn = ctx.createGain(); tgn.gain.setValueAtTime(0.5, s2); tgn.gain.exponentialRampToValueAtTime(0.001, s2 + 0.26);
         th.connect(tgn); tgn.connect(head); th.start(s2); th.stop(s2 + 0.3);
       }
+      // A hinge groan alone is a cartoon door. What makes a heavy steel leaf read
+      // as a heavy steel leaf is the SHEET: a big thin panel flexing as it swings,
+      // and the latch furniture rattling in its keep.
+      // 1. sheet flex: a low resonance that bends as the leaf moves
+      const flex = ctx.createOscillator(); flex.type = 'sine';
+      flex.frequency.setValueAtTime(closing ? 168 : 132, t + 0.04);
+      flex.frequency.linearRampToValueAtTime(closing ? 132 : 176, t + dur * 0.7);
+      const fq = ctx.createBiquadFilter(); fq.type = 'bandpass';
+      fq.frequency.value = 320; fq.Q.value = 3.5;
+      const fg = ctx.createGain();
+      fg.gain.setValueAtTime(0.0001, t + 0.04);
+      fg.gain.linearRampToValueAtTime(0.16 + k * 0.04, t + dur * 0.3);
+      fg.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+      flex.connect(fq); fq.connect(fg); fg.connect(head);
+      flex.start(t + 0.04); flex.stop(t + dur + 0.05);
+      // 2. latch and keep: a couple of dry metallic knocks, unevenly placed
+      for (let i = 0; i < 2 + k; i++) {
+        const st = t + 0.02 + Math.random() * dur * 0.55;
+        const kn = this._noiseSrc();
+        const kf = ctx.createBiquadFilter(); kf.type = 'bandpass';
+        kf.frequency.value = 1700 + Math.random() * 1400; kf.Q.value = 11;
+        const kg = ctx.createGain();
+        kg.gain.setValueAtTime(0.0001, st);
+        kg.gain.linearRampToValueAtTime(0.11 + Math.random() * 0.08, st + 0.003);
+        kg.gain.exponentialRampToValueAtTime(0.0008, st + 0.05);
+        kn.connect(kf); kf.connect(kg); kg.connect(head);
+        kn.start(st); kn.stop(st + 0.09);
+      }
     } else if (kind === 'window') {
       // GLASS. The window is not a mechanism, so it cannot use the stepped
       // hinge/thud language of the others: what you hear is a body working its
@@ -527,6 +555,46 @@ export class AudioBus {
       const lg = ctx.createGain(); lg.gain.value = 0.14; lfo.connect(lg); lg.connect(g.gain);
       n.connect(bp); bp.connect(g); g.connect(head);
       n.start(t); lfo.start(t); n.stop(t + dur + 0.05); lfo.stop(t + dur + 0.05);
+      // A duct is a TUBE with a thin lid screwed onto it, and all three of those
+      // things make noise: the fixings buzzing loose, the panel oil-canning, and
+      // the shaft behind it resonating like a pipe. That last layer is the one
+      // that tells you the sound came from inside the wall.
+      // 1. screws chattering in their holes
+      for (let i = 0; i < 3 + k * 2; i++) {
+        const st = t + Math.random() * dur * 0.85;
+        const sn = ctx.createOscillator(); sn.type = 'square';
+        sn.frequency.setValueAtTime(3100 + Math.random() * 2400, st);
+        const sf = ctx.createBiquadFilter(); sf.type = 'bandpass';
+        sf.frequency.value = 4200; sf.Q.value = 18;
+        const sg2 = ctx.createGain();
+        sg2.gain.setValueAtTime(0.0001, st);
+        sg2.gain.linearRampToValueAtTime(0.030 + Math.random() * 0.022, st + 0.004);
+        sg2.gain.exponentialRampToValueAtTime(0.0006, st + 0.03 + Math.random() * 0.04);
+        sn.connect(sf); sf.connect(sg2); sg2.connect(head);
+        sn.start(st); sn.stop(st + 0.09);
+      }
+      // 2. the panel oil-canning: a bending low tone, the sound of thin sheet
+      const oc = ctx.createOscillator(); oc.type = 'triangle';
+      oc.frequency.setValueAtTime(210 + k * 26, t + 0.02);
+      oc.frequency.linearRampToValueAtTime(148 + k * 18, t + dur * 0.8);
+      const ocg = ctx.createGain();
+      ocg.gain.setValueAtTime(0.0001, t + 0.02);
+      ocg.gain.linearRampToValueAtTime(0.10 + k * 0.03, t + 0.09);
+      ocg.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+      oc.connect(ocg); ocg.connect(head);
+      oc.start(t + 0.02); oc.stop(t + dur + 0.05);
+      // 3. the shaft behind it: a narrow resonant band on filtered noise, which
+      // is what makes it sound like it is coming from a metre inside the wall
+      const rn = this._noiseSrc();
+      const r1 = ctx.createBiquadFilter(); r1.type = 'bandpass'; r1.frequency.value = 300; r1.Q.value = 16;
+      const r2 = ctx.createBiquadFilter(); r2.type = 'bandpass'; r2.frequency.value = 600; r2.Q.value = 14;
+      const rg2 = ctx.createGain();
+      rg2.gain.setValueAtTime(0.0001, t);
+      rg2.gain.linearRampToValueAtTime(0.24 + k * 0.06, t + dur * 0.25);
+      rg2.gain.exponentialRampToValueAtTime(0.0008, t + dur * 1.5);
+      rn.connect(r1); r1.connect(rg2); rn.connect(r2); r2.connect(rg2);
+      rg2.connect(head);
+      rn.start(t); rn.stop(t + dur * 1.6);
     } else {   // hatch / grate
       // cast iron shoved on concrete: impact then a gritty scrape
       const o = ctx.createOscillator(); o.type = 'sine';
@@ -541,6 +609,47 @@ export class AudioBus {
         ng.gain.exponentialRampToValueAtTime(0.001, t + 0.8);
         n.connect(bp); bp.connect(ng); ng.connect(head); n.start(t + 0.05); n.stop(t + 0.85);
       }
+      // The pit is the heaviest access in the room and it needs the mass to match:
+      // a lift chain paying out, the ladder ringing as weight goes on it, and the
+      // grating itself buzzing in its frame afterwards. Three layers, all much
+      // lower and slower than the window's glass, so the two can never be
+      // confused with your eyes shut.
+      // 1. chain: a scatter of dull metallic links, close together
+      for (let i = 0; i < 6 + k * 4; i++) {
+        const st = t + 0.03 + Math.random() * (0.30 + k * 0.22);
+        const cn = this._noiseSrc();
+        const cf = ctx.createBiquadFilter(); cf.type = 'bandpass';
+        cf.frequency.value = 900 + Math.random() * 1100; cf.Q.value = 9;
+        const cg = ctx.createGain();
+        cg.gain.setValueAtTime(0.0001, st);
+        cg.gain.linearRampToValueAtTime(0.055 + Math.random() * 0.05, st + 0.004);
+        cg.gain.exponentialRampToValueAtTime(0.0006, st + 0.04 + Math.random() * 0.05);
+        cn.connect(cf); cf.connect(cg); cg.connect(head);
+        cn.start(st); cn.stop(st + 0.11);
+      }
+      // 2. the ladder: a long, low ring as something puts its weight on a rung
+      const lad = ctx.createOscillator(); lad.type = 'triangle';
+      const ls = t + 0.10;
+      lad.frequency.setValueAtTime(232, ls);
+      lad.frequency.exponentialRampToValueAtTime(198, ls + 0.9);
+      const lq = ctx.createBiquadFilter(); lq.type = 'bandpass'; lq.frequency.value = 460; lq.Q.value = 12;
+      const lgn = ctx.createGain();
+      lgn.gain.setValueAtTime(0.0001, ls);
+      lgn.gain.linearRampToValueAtTime(0.13 + k * 0.03, ls + 0.03);
+      lgn.gain.exponentialRampToValueAtTime(0.0006, ls + 1.0);
+      lad.connect(lq); lq.connect(lgn); lgn.connect(head);
+      lad.start(ls); lad.stop(ls + 1.05);
+      // 3. the grating left buzzing in its frame once it has been moved
+      const bz = ctx.createOscillator(); bz.type = 'square';
+      bz.frequency.value = 58 + k * 7;
+      const bzf = ctx.createBiquadFilter(); bzf.type = 'bandpass'; bzf.frequency.value = 700; bzf.Q.value = 6;
+      const bzg = ctx.createGain();
+      const bs = t + 0.16;
+      bzg.gain.setValueAtTime(0.0001, bs);
+      bzg.gain.linearRampToValueAtTime(0.075, bs + 0.05);
+      bzg.gain.exponentialRampToValueAtTime(0.0006, bs + 0.55);
+      bz.connect(bzf); bzf.connect(bzg); bzg.connect(head);
+      bz.start(bs); bz.stop(bs + 0.6);
     }
   }
 
