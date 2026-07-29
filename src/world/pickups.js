@@ -186,15 +186,19 @@ export class PickupField {
   /** @returns array of events: {kind:'collected'|'tick', pan, frac} */
   update(dt, flashlight) {
     const D = CONFIG.pickups;
-    // EXCLUSIVE: pick the single cell nearest the beam axis, and only if the
-    // beam is actually on it. Everything else discharges.
+    // EXCLUSIVE: pick the single cell nearest the beam axis. Everything else
+    // discharges.
+    //
+    // The test is GEOMETRIC (coverage), never litAmount, and it does not care
+    // whether the lamp is switched on: a flat battery used to make every cell
+    // unselectable, which left the player blind AND unable to recover — a
+    // dead end with no solution. Taking a cell is an act of aiming, and the
+    // cells carry their own indicator, so a dark room changes nothing.
     let best = null, bestAngle = Infinity;
-    if (flashlight.on) {
-      for (const b of this.items) {
-        if (b.taken) continue;
-        const a = flashlight.aimAngle(b.pos);
-        if (a < D.maxAngle && a < bestAngle && flashlight.litAmount(b.pos) > D.litThreshold) { bestAngle = a; best = b; }
-      }
+    for (const b of this.items) {
+      if (b.taken) continue;
+      const a = flashlight.aimAngle(b.pos);
+      if (a < D.maxAngle && a < bestAngle && flashlight.coverage(b.pos) > D.litThreshold) { bestAngle = a; best = b; }
     }
     for (const b of this.items) b.active = (b === best);
 

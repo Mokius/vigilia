@@ -15,8 +15,8 @@ export const ROUTES = {
     // x = -1.5 is the wall plane. Stations 0-1 sit BEHIND it, in the recess, so
     // nothing is ever standing inside a shut door.
     points: [
-      [-1.80, 0, 0.35, 'slit'],     // deep in the recess, only eyes in the gap
-      [-1.58, 0, 0.35, 'peek'],     // leaning into the gap, still outside
+      [-2.02, 0, 0.35, 'slit'],     // deep in the recess, only eyes in the gap
+      [-1.86, 0, 0.35, 'peek'],     // leaning into the gap, clear of the shut leaf
       [-1.24, 0, 0.28, 'threshold'],// crossing the plane: needs a real opening
       [-0.85, 0, 0.14, 'inside'],
       [-0.38, 0, 0.02, 'close'],
@@ -37,25 +37,30 @@ export const ROUTES = {
   },
 
   // --- R2b: crosses the corridor without ever entering. Pure false alarm. --
+  // It walks the CROSS PASSAGE at z=-3.30. The old span (x +-0.95) was wider
+  // than the corridor itself (+-0.65), so the silhouette used to walk through
+  // solid wall on both sides; room.js now cuts a real side passage there.
   corridorCross: {
     pan: 0.0, surface: 'front', cross: true, access: null,
     points: [
-      [-0.95, 0, -2.40, 'cross'],
-      [-0.35, 0, -2.40, 'cross'],
-      [ 0.35, 0, -2.40, 'cross'],
-      [ 0.95, 0, -2.40, 'cross'],
+      [-1.30, 0, -3.30, 'cross'],
+      [-0.45, 0, -3.30, 'cross'],
+      [ 0.45, 0, -3.30, 'cross'],
+      [ 1.30, 0, -3.30, 'cross'],
     ],
   },
 
-  // --- R3: the low vent. Half a body pushes out, then drops and crawls. ----
+  // --- R3: the low duct, now in the LEFT wall ------------------------------
+  // It shares that wall with the door but sits well forward of it, so the two
+  // ways in never overlap and the left panel reads as the services side.
   vent: {
-    pan: -0.35, surface: 'front', access: 'vent',
+    pan: -0.80, surface: 'left', access: 'vent',
     points: [
-      [-0.90, 0.34, -1.78, 'emerge'], // inside the duct, behind the grille
-      [-0.90, 0.32, -1.56, 'emerge'], // pressed against the grille
-      [-0.89, 0.16, -1.26, 'drop'],   // through it, dropping out
-      [-0.72, 0.00, -0.82, 'crawl'],
-      [-0.42, 0.00, -0.38, 'close'],
+      [-1.90, 0.32, -0.95, 'emerge'], // inside the duct, behind the louvre
+      [-1.60, 0.30, -0.95, 'emerge'], // pressed against the louvre
+      [-1.22, 0.14, -0.95, 'drop'],   // through it, dropping out
+      [-0.82, 0.00, -0.78, 'crawl'],
+      [-0.40, 0.00, -0.52, 'close'],
     ],
   },
 
@@ -72,14 +77,19 @@ export const ROUTES = {
   },
 
   // --- R5: the smashed window. A leg over the sill, then in. ---------------
+  // The old route stood it at y=0.66 — level with a sill that was itself 0.72 m
+  // up — so the creature floated with its head above the aperture and its trunk
+  // inside the masonry. It now stands on the machine-room floor BEHIND the wall,
+  // which frames its whole body in the opening, then rises onto the sill and
+  // comes down into the room. The climb is a real change of height.
   window: {
     pan: 0.95, surface: 'right', access: null,  // already smashed open
     points: [
-      [1.72, 0.66, -0.15, 'slit'],    // in the void behind the broken pane
-      [1.52, 0.66, -0.15, 'peek'],    // face filling the opening
-      [1.22, 0.34, -0.15, 'climb'],   // a leg over the sill
-      [0.88, 0.00, -0.15, 'inside'],
-      [0.50, 0.00, -0.12, 'close'],
+      [1.74, 0.00, -0.15, 'slit'],    // in the void behind the broken pane
+      [1.54, 0.00, -0.15, 'peek'],    // body filling the opening
+      [1.12, 0.16, -0.15, 'climb'],   // up over the sill, inboard of the lintel
+      [0.92, 0.06, -0.15, 'inside'],  // stepping down off it
+      [0.54, 0.00, -0.12, 'close'],
     ],
   },
 

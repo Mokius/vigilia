@@ -175,13 +175,29 @@ export class Flashlight {
 
   // Angle test used by the AI: is a world point currently lit by the beam?
   litAmount(worldPos) {
+    return this.on ? this.coverage(worldPos) * this._flick : 0;
+  }
+
+  /**
+   * Purely GEOMETRIC beam coverage of a world point: is it inside the cone and
+   * within reach? Deliberately independent of `on`, of the battery and of the
+   * flicker.
+   *
+   * The pickups used litAmount() as their targeting test, which meant that once
+   * the battery hit exactly 0 the flicker clamped to 0, coverage read as 0, no
+   * cell could ever be selected and the night became unwinnable — the player was
+   * left blind with no way to recover. Aiming is a DIRECTION, not a light: it
+   * has to keep working with a dead lamp, and the cells have their own indicator
+   * so they stay findable in the dark.
+   */
+  coverage(worldPos) {
     const v = worldPos.clone().sub(this.eye);
     const dist = v.length();
     v.normalize();
     const cang = v.dot(this.dir);
     const cone = clamp((cang - Math.cos(CONFIG.flashlight.angle * 1.05)) / 0.05, 0, 1);
     const reach = 1 - clamp((dist - CONFIG.flashlight.distance) / 2, 0, 1);
-    return this.on ? cone * reach * this._flick : 0;
+    return cone * reach;
   }
 
   update(dt, t) {

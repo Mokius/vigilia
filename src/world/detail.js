@@ -29,14 +29,14 @@ export function paintedPlate(wm, hm, draw, { px = 512, matte = 0.95, alpha = fal
   draw(c, px, H);
 
   // --- wear pass ---
-  c.globalAlpha = 0.5;
+  c.globalAlpha = 0.34;
   const specks = Math.round(px * H / 900);
   for (let i = 0; i < specks; i++) {
     const x = Math.random() * px, y = Math.random() * H, r = 1 + Math.random() * 3.5;
     c.fillStyle = Math.random() < 0.55 ? 'rgba(18,16,14,0.75)' : 'rgba(150,145,135,0.30)';
     c.beginPath(); c.arc(x, y, r, 0, 7); c.fill();
   }
-  c.globalAlpha = 0.2;
+  c.globalAlpha = 0.13;
   const gr = c.createLinearGradient(0, 0, 0, H);
   gr.addColorStop(0, 'rgba(0,0,0,0.5)');
   gr.addColorStop(0.45, 'rgba(0,0,0,0)');
@@ -50,7 +50,7 @@ export function paintedPlate(wm, hm, draw, { px = 512, matte = 0.95, alpha = fal
   // cannot clip to white when the beam hits it square from a metre away —
   // the same trap the menu console fell into.
   const mat = new THREE.MeshStandardMaterial({
-    map: tex, color: 0x7a7a7a, roughness: matte, metalness: 0.0, transparent: alpha,
+    map: tex, color: 0x8f8f8f, roughness: matte, metalness: 0.0, transparent: alpha,
   });
   return new THREE.Mesh(new THREE.PlaneGeometry(wm, hm), mat);
 }
@@ -66,11 +66,12 @@ export function addSignage(room) {
     c.fillStyle = '#1b1f1c'; c.fillRect(0, 0, W, H);
     c.strokeStyle = '#c9cdbe'; c.lineWidth = 5; c.strokeRect(9, 9, W - 18, H - 18);
     c.fillStyle = '#d7dbcc'; c.textAlign = 'center'; c.textBaseline = 'middle';
-    c.font = Math.round(H * 0.30) + 'px ' + F.stencil;
-    c.fillText('SECTOR 3', W / 2, H * 0.36);
-    c.font = Math.round(H * 0.19) + 'px ' + F.crt; c.fillStyle = '#9aa08e';
-    c.fillText('SALA DE CONTROL', W / 2, H * 0.62);
-    c.fillText('MANTENIMIENTO', W / 2, H * 0.82);
+    c.font = Math.round(H * 0.40) + 'px ' + F.stencil;
+    c.fillText('SECTOR 3', W / 2, H * 0.33);
+    // ONE subtitle, big enough to actually read from across the room. Two lines
+    // at 4.6 cm of cap height was decoration pretending to be information.
+    c.font = Math.round(H * 0.28) + 'px ' + F.crt; c.fillStyle = '#c2c8b2';
+    c.fillText('SALA DE CONTROL', W / 2, H * 0.72);
   });
   // Offset to the right-hand pier: the clock owns the centre above the corridor,
   // and the two signs then flank it symmetrically.
@@ -82,55 +83,64 @@ export function addSignage(room) {
   backer.position.set(1.02, 1.74, -d + 0.022); backer.castShadow = true; g.add(backer);
 
   // FRONT beside the corridor: the exit arrow.
+  //
+  // COLOUR LANGUAGE: green now means ONE thing in this room — a battery cell you
+  // can take. This sign used to be green-on-green with its own green lamp, and
+  // players kept aiming at it trying to collect it. It is now the older amber
+  // filament type, which reads just as clearly as a way out and cannot be
+  // mistaken for a pickup.
   const exitSign = paintedPlate(0.44, 0.2, (c, W, H) => {
-    c.fillStyle = '#123018'; c.fillRect(0, 0, W, H);
-    c.fillStyle = '#8fe6a6'; c.textAlign = 'left'; c.textBaseline = 'middle';
+    c.fillStyle = '#231a0c'; c.fillRect(0, 0, W, H);
+    c.fillStyle = '#e8b45c'; c.textAlign = 'left'; c.textBaseline = 'middle';
     c.font = Math.round(H * 0.5) + 'px ' + F.stencil;
     c.fillText('SALIDA', W * 0.07, H * 0.52);
-    c.lineWidth = 7; c.strokeStyle = '#8fe6a6';
+    c.lineWidth = 7; c.strokeStyle = '#e8b45c';
     c.beginPath(); c.moveTo(W * 0.7, H * 0.52); c.lineTo(W * 0.88, H * 0.52); c.stroke();
     c.beginPath(); c.moveTo(W * 0.95, H * 0.52); c.lineTo(W * 0.82, H * 0.28);
-    c.lineTo(W * 0.82, H * 0.76); c.closePath(); c.fillStyle = '#8fe6a6'; c.fill();
+    c.lineTo(W * 0.82, H * 0.76); c.closePath(); c.fillStyle = '#e8b45c'; c.fill();
   }, { px: 256 });
   exitSign.position.set(-1.0, 1.74, -d + 0.05); g.add(exitSign);
   const exBox = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.24, 0.05), room.equip);
   exBox.position.set(-1.0, 1.74, -d + 0.026); exBox.castShadow = true; g.add(exBox);
-  // it is a lit sign, so give it its own faint glow
-  const exLamp = new THREE.PointLight(0x3ad07a, 0.5, 1.1, 2);
+  // it is a lit sign, so give it its own faint glow — warm, never green
+  const exLamp = new THREE.PointLight(0xd8a24a, 0.45, 1.1, 2);
   exLamp.position.set(-1.0, 1.74, -d + 0.16); g.add(exLamp);
 
   // FRONT low, next to the vent: labels the duct so it reads as an air path.
-  const ventTag = paintedPlate(0.38, 0.11, (c, W, H) => {
+  const ventTag = paintedPlate(0.50, 0.15, (c, W, H) => {
     c.fillStyle = '#20241f'; c.fillRect(0, 0, W, H);
-    c.fillStyle = '#a9ae9c'; c.textAlign = 'center'; c.textBaseline = 'middle';
-    c.font = Math.round(H * 0.44) + 'px ' + F.crt;
+    c.strokeStyle = '#6b7063'; c.lineWidth = 4; c.strokeRect(5, 5, W - 10, H - 10);
+    c.fillStyle = '#bcc1ad'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.font = Math.round(H * 0.52) + 'px ' + F.crt;
     c.fillText('CLIMA CT-14', W / 2, H * 0.55);
   }, { px: 256 });
-  ventTag.position.set(-0.9, 1.02, -d + 0.035); g.add(ventTag);
+  ventTag.rotation.y = Math.PI / 2;
+  ventTag.position.set(-w + 0.025, room.openings.vent.y + 0.48, room.openings.vent.z);
+  g.add(ventTag);
 
   // LEFT wall: pipe colour-code key. Explains the bands on the ceiling.
-  const key = paintedPlate(0.3, 0.44, (c, W, H) => {
+  // Three colour bands and three words, sized to be read. The old version put a
+  // 4.6 cm caption and a 3 cm title on a 30 cm plate on the wall the beam only
+  // ever rakes at a grazing angle: unreadable by construction.
+  const key = paintedPlate(0.44, 0.40, (c, W, H) => {
     c.fillStyle = '#1d201c'; c.fillRect(0, 0, W, H);
-    c.strokeStyle = '#6d7265'; c.lineWidth = 3; c.strokeRect(6, 6, W - 12, H - 12);
+    c.strokeStyle = '#6d7265'; c.lineWidth = 4; c.strokeRect(6, 6, W - 12, H - 12);
     c.textBaseline = 'middle';
-    [['#3f8f4a', 'AGUA'], ['#b8992f', 'GAS'], ['#a33a2a', 'INCEND.']].forEach(([col, label], i) => {
-      const y = H * (0.28 + i * 0.24);
-      c.fillStyle = col; c.fillRect(W * 0.12, y - H * 0.05, W * 0.22, H * 0.1);
-      c.fillStyle = '#c8ccbc'; c.font = Math.round(H * 0.085) + 'px ' + F.crt;
-      c.textAlign = 'left'; c.fillText(label, W * 0.42, y);
+    [['#2f6bab', 'AGUA'], ['#b8992f', 'GAS'], ['#a33a2a', 'CONTRA INC.']].forEach(([col, label], i) => {
+      const y = H * (0.22 + i * 0.28);
+      c.fillStyle = col; c.fillRect(W * 0.07, y - H * 0.075, W * 0.20, H * 0.15);
+      c.fillStyle = '#d2d6c6'; c.font = Math.round(H * 0.15) + 'px ' + F.crt;
+      c.textAlign = 'left'; c.fillText(label, W * 0.33, y);
     });
-    c.fillStyle = '#8f9484'; c.textAlign = 'center';
-    c.font = Math.round(H * 0.07) + 'px ' + F.stencil;
-    c.fillText('CODIGO DE FLUIDOS', W / 2, H * 0.12);
   }, { px: 256 });
-  key.rotation.y = Math.PI / 2; key.position.set(-w + 0.02, 1.5, -0.3); g.add(key);
+  key.rotation.y = Math.PI / 2; key.position.set(-w + 0.025, 1.62, 1.10); g.add(key);
 
   // RIGHT on the cabinet: the console-grade panel for that wall.
   const panel = paintedPlate(0.5, 0.74, (c, W, H) => {
     c.fillStyle = '#2a2d27'; c.fillRect(0, 0, W, H);
     c.strokeStyle = '#7d8274'; c.lineWidth = 4; c.strokeRect(8, 8, W - 16, H - 16);
     c.fillStyle = '#d9ddcb'; c.textAlign = 'center'; c.textBaseline = 'middle';
-    c.font = Math.round(H * 0.07) + 'px ' + F.stencil;
+    c.font = Math.round(H * 0.095) + 'px ' + F.stencil;
     c.fillText('CUADRO GENERAL', W / 2, H * 0.09);
     const cx = W / 2, ty = H * 0.26, r = H * 0.1;
     c.beginPath(); c.moveTo(cx, ty - r); c.lineTo(cx + r * 0.95, ty + r * 0.72);
@@ -138,33 +148,70 @@ export function addSignage(room) {
     c.fillStyle = '#c9a52a'; c.fill(); c.lineWidth = 5; c.strokeStyle = '#20231f'; c.stroke();
     c.fillStyle = '#20231f'; c.font = 'bold ' + Math.round(r * 1.15) + 'px ' + F.stencil;
     c.fillText('!', cx, ty + r * 0.2);
-    c.fillStyle = '#b8452f'; c.font = Math.round(H * 0.05) + 'px ' + F.crt;
+    c.fillStyle = '#b8452f'; c.font = Math.round(H * 0.062) + 'px ' + F.crt;
     c.fillText('400 V — RIESGO ELECTRICO', W / 2, H * 0.44);
-    c.textAlign = 'left'; c.font = Math.round(H * 0.04) + 'px ' + F.crt;
-    ['Q1  ILUMINACION', 'Q2  VENTILACION', 'Q3  BOMBAS', 'Q4  EMERGENCIA', 'Q5  RESERVA']
-      .forEach((L, i) => {
-        const y = H * (0.56 + i * 0.072);
-        c.fillStyle = '#8f9484'; c.fillText(L, W * 0.13, y);
-        c.strokeStyle = '#565b4e'; c.lineWidth = 2;
-        c.beginPath(); c.moveTo(W * 0.1, y + H * 0.025); c.lineTo(W * 0.9, y + H * 0.025); c.stroke();
-      });
+    // The five-way breaker schedule was 3.8 cm type — invisible, and it made the
+    // plate look busy for no gain. It is now three engraved rocker labels at a
+    // size that reads, which is all the wall needs to say.
+    c.textAlign = 'center'; c.font = Math.round(H * 0.075) + 'px ' + F.crt;
+    ['ILUMINACION', 'BOMBAS', 'EMERGENCIA'].forEach((L, i) => {
+      const y = H * (0.62 + i * 0.13);
+      c.fillStyle = '#1c1e1a'; c.fillRect(W * 0.12, y - H * 0.048, W * 0.76, H * 0.096);
+      c.strokeStyle = '#5c6154'; c.lineWidth = 3; c.strokeRect(W * 0.12, y - H * 0.048, W * 0.76, H * 0.096);
+      c.fillStyle = '#b9bfa9'; c.fillText(L, W / 2, y);
+    });
   });
-  panel.rotation.y = -Math.PI / 2; panel.position.set(w - 0.255, 1.05, 0.75); g.add(panel);
+  panel.rotation.y = -Math.PI / 2; panel.position.set(w - 0.255, 1.05, 1.05); g.add(panel);
 
-  // FLOOR around the hatch: painted border, so it reads as a real access.
-  const hatchMark = paintedPlate(1.2, 1.2, (c, W, H) => {
-    c.clearRect(0, 0, W, H);
-    c.strokeStyle = '#b89a28'; c.lineWidth = 12;
-    c.setLineDash([34, 22]); c.strokeRect(16, 16, W - 32, H - 32); c.setLineDash([]);
-    c.fillStyle = '#b89a28'; c.textAlign = 'center'; c.textBaseline = 'middle';
-    c.font = Math.round(H * 0.08) + 'px ' + CONFIG.fonts.stencil;
-    c.fillText('REGISTRO', W / 2, H * 0.1);
-  }, { px: 256, alpha: true });
-  hatchMark.rotation.x = -Math.PI / 2;
-  hatchMark.position.set(0.55, 0.005, 0.45); g.add(hatchMark);
+  // ---- FLOOR: the drainage access ----------------------------------------
+  // This was ONE 1.2 x 1.2 m plane centred on the hatch. Now that the slab has a
+  // real hole cut in it, such a plane would lie straight across the aperture and
+  // hide the pit — so the marking is four painted strips AROUND the opening.
+  // The label is also its own opaque plate at legible size: 'REGISTRO' used to be
+  // 9 cm of dark ochre on transparency over dark concrete, which is why it could
+  // not be read at all.
+  const OP = room.openings.hatch;
+  const half = OP.w / 2, band = 0.17, off = half + 0.09 + band / 2;
+  const hazard = (len) => paintedPlate(len, band, (c, W, H) => {
+    // Painted, decades old, walked on. At #c9a72c under a raking beam this band
+    // was the brightest thing in the room and read as a light strip.
+    c.fillStyle = '#1c1a12'; c.fillRect(0, 0, W, H);
+    c.fillStyle = '#8a731f';
+    const step = H * 1.15;
+    for (let x = -step; x < W + step; x += step) {
+      c.beginPath();
+      c.moveTo(x, H); c.lineTo(x + step * 0.5, 0);
+      c.lineTo(x + step * 0.92, 0); c.lineTo(x + step * 0.42, H);
+      c.closePath(); c.fill();
+    }
+  }, { px: 256 });
+  for (const [px, pz, len, rot] of [
+    [OP.x, OP.z - off, OP.w + 0.18 + band * 2, 0],
+    [OP.x, OP.z + off, OP.w + 0.18 + band * 2, 0],
+    [OP.x - off, OP.z, OP.w + 0.18, Math.PI / 2],
+    [OP.x + off, OP.z, OP.w + 0.18, Math.PI / 2],
+  ]) {
+    const s = hazard(len);
+    s.rotation.x = -Math.PI / 2; s.rotation.z = rot;
+    s.position.set(px, 0.0035, pz); g.add(s);
+  }
+  // the label, on the approach side where the player is actually looking
+  const regTag = paintedPlate(0.62, 0.19, (c, W, H) => {
+    c.fillStyle = '#1a1b18'; c.fillRect(0, 0, W, H);
+    c.strokeStyle = '#6d6a55'; c.lineWidth = 4; c.strokeRect(5, 5, W - 10, H - 10);
+    c.fillStyle = '#e0d59a'; c.textAlign = 'center'; c.textBaseline = 'middle';
+    c.font = Math.round(H * 0.52) + 'px ' + CONFIG.fonts.stencil;
+    c.fillText('REGISTRO', W / 2, H * 0.52);
+
+  }, { px: 256 });
+  regTag.rotation.x = -Math.PI / 2;
+  regTag.position.set(OP.x, 0.0035, OP.z - off - 0.20); g.add(regTag);
 
   // FLOOR: a painted walkway leading in from the corridor. Guides the eye.
-  const lane = paintedPlate(0.95, 2.1, (c, W, H) => {
+  // Shortened at both ends so it no longer runs under the chevrons at one end or
+  // across the hatch aperture at the other — three coplanar decals were fighting
+  // for the same square metre of floor.
+  const lane = paintedPlate(0.95, 1.02, (c, W, H) => {
     c.clearRect(0, 0, W, H);
     c.strokeStyle = '#c2b64a'; c.lineWidth = 8;
     c.beginPath();
@@ -172,7 +219,7 @@ export function addSignage(room) {
     c.stroke();
   }, { px: 128, alpha: true });
   lane.rotation.x = -Math.PI / 2;
-  lane.position.set(0, 0.004, -0.4); g.add(lane);
+  lane.position.set(0, 0.004, -0.54); g.add(lane);
 
   // FLOOR: hazard chevrons at the corridor threshold.
   const chev = paintedPlate(1.3, 0.22, (c, W, H) => {
@@ -227,10 +274,9 @@ export function addBatteryGauge(room) {
       c.lineWidth = i % 5 === 0 ? W * 0.022 : W * 0.012; c.stroke();
     }
     c.fillStyle = '#b9bcae'; c.textAlign = 'center'; c.textBaseline = 'middle';
-    c.font = Math.round(H * 0.1) + 'px ' + F.stencil;
-    c.fillText('CARGA', cx, cy - R * 0.42);
-    c.font = Math.round(H * 0.07) + 'px ' + F.crt;
-    c.fillText('LAMPARA  DC 6V', cx, cy + R * 0.3);
+    c.font = Math.round(H * 0.15) + 'px ' + F.stencil;
+    c.fillText('CARGA', cx, cy - R * 0.40);
+
   }, { px: 256 });
   face.position.z = 0.047; grp.add(face);
 
@@ -310,7 +356,8 @@ export function addServices(room) {
   }
 
   // --- colour-coded bands on the ceiling pipes ---
-  const cols = [0x3f8f4a, 0xb8992f, 0xa33a2a];
+  // water = blue, not green: green is reserved for battery cells alone
+  const cols = [0x2f6bab, 0xb8992f, 0xa33a2a];
   [-1.15, 1.05, 1.25].forEach((x, i) => {
     const mat = new THREE.MeshStandardMaterial({ color: cols[i], roughness: 0.85, metalness: 0.1 });
     const band = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.053, 0.053, 0.1, 10), mat, 3);

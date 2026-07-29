@@ -30,7 +30,10 @@ export class CRTConsole {
     this.aim = { name: null, frac: 0 };
     this.t = 0;
     this.parked = new THREE.Vector3(0, 0, -1.28);
-    this.away = new THREE.Vector3(0, 0, -4.1);
+    // Parked BEYOND the red end wall (z=-4.67), so the cart is out of sight and,
+    // more importantly, out of the corridor route's first station at z=-4.20 —
+    // creatures used to spawn inside it.
+    this.away = new THREE.Vector3(0, 0, -5.35);
     this.rolling = 0;                   // 0 = parked, 1 = away
     this.power = 1;
     this.controls = [];

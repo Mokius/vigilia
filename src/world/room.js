@@ -13,7 +13,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { buildTextures } from './textures.js';
-import { addSignage, addServices, addDoorDetail, addBatteryGauge, updateBatteryGauge } from './detail.js';
+import { addSignage, addServices, addDoorDetail, addBatteryGauge, updateBatteryGauge, paintedPlate } from './detail.js';
 
 const V3 = THREE.Vector3;
 
@@ -45,36 +45,79 @@ export class Room {
     });
   }
 
+  /**
+   * A wall built as FOUR panels around a rectangular hole, in the wall's own 2D
+   * coordinates (u across, v up), so the opening behind it is genuinely visible.
+   *
+   * This exists because every access except the corridor used to be *decorated*
+   * onto a solid plane: the recess, the duct and the window void all sat behind
+   * an opaque wall, so a creature waiting in them was hidden by the wall itself
+   * and then appeared to walk straight through it. Cutting the hole is what
+   * makes "it is coming in through the door" legible at all.
+   *
+   * @param place (u0,v0,uw,vh) -> void, positions one panel centred at (u0,v0)
+   */
+  _holedWall(uSpan, vSpan, hole, place) {
+    const [u0, u1] = uSpan, [v0, v1] = vSpan;
+    const { u, v, w: hw, h: hh } = hole;
+    const uL = u - hw / 2, uR = u + hw / 2, vB = v - hh / 2, vT = v + hh / 2;
+    // left of the hole, right of the hole, then the strips under and over it
+    if (uL - u0 > 1e-4) place((u0 + uL) / 2, (v0 + v1) / 2, uL - u0, v1 - v0);
+    if (u1 - uR > 1e-4) place((uR + u1) / 2, (v0 + v1) / 2, u1 - uR, v1 - v0);
+    if (vB - v0 > 1e-4) place((uL + uR) / 2, (v0 + vB) / 2, hw, vB - v0);
+    if (v1 - vT > 1e-4) place((uL + uR) / 2, (vT + v1) / 2, hw, v1 - vT);
+  }
+
   _build() {
     const tex = buildTextures();
+    this._tex = tex;   // the accesses build their own materials from these
     const w = CONFIG.room.W / 2, d = CONFIG.room.D / 2, h = CONFIG.room.H;
     const g = this.group;
 
-    // floor and ceiling shared ONE material: identical maps and tiling, and
-    // every extra material clones three 1024 textures onto the GPU.
-    const floorMat = this._mat(tex.concrete, 3, 3, { color: 0x4a4e56 });
-    const ceilMat = floorMat;
-    // --- WALLS: three DIFFERENT tilings so no two surfaces share a pattern,
-    // and low metalness so the beam stops turning them into polished sheet.
-    const wallMat = this._mat(tex.metal, 2.15, 1.75, { color: 0x585d66, metalness: 0.12, roughness: 0.88 });
-    const wallMatB = this._mat(tex.concrete, 1.55, 1.25, { color: 0x565a61, metalness: 0.06, roughness: 0.93 });
-    const wallMatC = this._mat(tex.metal, 2.75, 1.35, { color: 0x545a63, metalness: 0.14, roughness: 0.86 });
+    // --- SURFACE IDENTITY -------------------------------------------------
+    // Every wall used to be the same two textures at slightly different tiling
+    // and near-identical greys, so the beam revealed a repeating grid and no
+    // information: you could not tell concrete from sheet metal. Two changes fix
+    // that. First, each surface gets a genuinely different physical answer to
+    // light (colour, roughness, metalness and normal depth all separated, not
+    // nudged). Second, the tiling drops to ~1 tile per surface, which removes
+    // the repeat pattern entirely — the detail now comes from geometry (ribs,
+    // seams, bolts, painted plates), which is where it reads properly anyway.
+    const floorMat = this._mat(tex.concrete, 1.5, 1.5, { color: 0x4a4e56, roughness: 0.96, normalScale: new THREE.Vector2(1.9, 1.9) });
+    // ceiling = painted structural deck: darker, flatter, clearly not the floor
+    const ceilMat = this._mat(tex.metal, 1.3, 1.3, { color: 0x2f3439, metalness: 0.1, roughness: 0.92, normalScale: new THREE.Vector2(1.1, 1.1) });
+    // FRONT = painted sheet steel: cool, semi-gloss, shallow tooling marks
+    const wallMat = this._mat(tex.metal, 1.15, 0.95, { color: 0x4c545a, metalness: 0.15, roughness: 0.76, normalScale: new THREE.Vector2(1.5, 1.5) });
+    // LEFT = bare cast concrete: warm, utterly matte, deep pitted relief
+    const wallMatB = this._mat(tex.concrete, 1.0, 0.85, { color: 0x635c51, metalness: 0.0, roughness: 0.98, normalScale: new THREE.Vector2(2.5, 2.5) });
+    // RIGHT = corrugated industrial cladding: colder, tighter, plus real ribs
+    const wallMatC = this._mat(tex.metal, 1.0, 0.9, { color: 0x464d54, metalness: 0.2, roughness: 0.68, normalScale: new THREE.Vector2(1.2, 1.2) });
     this.wallMatB = wallMatB; this.wallMatC = wallMatC;
     // --- MATERIAL FAMILIES: each object type gets its own physical answer -----
-    const metal = this._mat(tex.metal, 2, 2, { color: 0x5b6068, metalness: 0.3, roughness: 0.72 });
+    const metal = this._mat(tex.metal, 2, 2, { color: 0x565b62, metalness: 0.22, roughness: 0.84 });
     const rust = this._mat(tex.rust, 1, 1, { color: 0x7a4f30, metalness: 0.12, roughness: 0.97 });
     // painted steel: furniture, lockers, shelving
     const painted = this._mat(tex.metal, 1.6, 1.6, { color: 0x3d4a4e, metalness: 0.18, roughness: 0.8 });
-    // stainless: handles, bars, hardware you touch
-    const steel = new THREE.MeshStandardMaterial({ color: 0x9aa0a8, metalness: 0.85, roughness: 0.38 });
+    // Hardware you touch: bars, handles, rails.
+    // This was near-chrome (metalness 0.85 / roughness 0.38) and it was the main
+    // source of the mirror glare — at 1 m the lamp became a specular sun on every
+    // rail and handle. Nothing in a damp, decades-old plant is polished: this is
+    // now aged mild steel, still metallic but with a highlight that spreads.
+    const steel = new THREE.MeshStandardMaterial({ color: 0x757b83, metalness: 0.52, roughness: 0.64 });
+    // Cast iron: the drainage hatch and its frame. Dark, dry, barely specular.
+    const iron = this._mat(tex.rust, 2.4, 2.4, { color: 0x35383c, metalness: 0.28, roughness: 0.94, normalScale: new THREE.Vector2(1.7, 1.7) });
+    this.iron = iron;
     // aged plastic / bakelite: knobs, switch bodies
     const plastic = new THREE.MeshStandardMaterial({ color: 0x23252a, metalness: 0.0, roughness: 0.62 });
     // worn timber: crates and pallets
     const timber = this._mat(tex.rust, 1.2, 1.2, { color: 0x6b5638, metalness: 0.0, roughness: 0.95 });
     // chipped enamel paint: the door leaf
-    const enamel = this._mat(tex.rust, 0.9, 1.4, { color: 0x4a5b53, metalness: 0.1, roughness: 0.86 });
+    // Dropped from 0x4a5b53: the leaf is the largest surface that ever gets within
+    // a metre of the lamp, and at that albedo it washed out to flat cream.
+    const enamel = this._mat(tex.rust, 0.9, 1.4, { color: 0x354039, metalness: 0.1, roughness: 0.88 });
     Object.assign(this, { painted, steel, plastic, timber, enamel });
-    const voidMat = new THREE.MeshStandardMaterial({ color: 0x030406, roughness: 1, side: THREE.BackSide });
+    // fog:false as well — a hole must not drift toward the fog colour with distance
+    const voidMat = new THREE.MeshStandardMaterial({ color: 0x030406, roughness: 1, side: THREE.BackSide, fog: false });
     // Dark painted equipment. The big flat faces of the cabinet, pump and bench
     // sit ~1 m from the lamp; in mid-grey metal the beam clipped them to white.
     const equip = this._mat(tex.metal, 2, 2, { color: 0x2a2e33, metalness: 0.3, roughness: 0.9 });
@@ -82,29 +125,85 @@ export class Room {
 
     const plane = (pw, ph, m) => new THREE.Mesh(new THREE.PlaneGeometry(pw, ph), m);
 
-    const floor = plane(CONFIG.room.W, CONFIG.room.D, floorMat);
-    floor.rotation.x = -Math.PI / 2; floor.receiveShadow = true; g.add(floor);
+    // ---- OPENINGS: the single source of truth for where the holes are -------
+    // Shared with routes.js (via the clearance audit) so geometry and AI can
+    // never drift apart again.
+    const OP = this.openings = {
+      corridor: { x: 0, w: 1.30, h: 2.15 },                        // front, floor-standing
+      door:     { z: 0.35, w: 1.06, h: 2.10 },                     // left, floor-standing
+      // Sill dropped from 0.72 m to 0.34 m and the opening made taller. At the
+      // old proportions a creature standing outside had its head at 1.72 m and
+      // the aperture stopped at 1.68 m, so you saw shins through the hole and its
+      // torso was buried in the wall — which is exactly why it read as "it just
+      // appears" instead of "it is climbing in". Now a whole body frames in it
+      // and the sill is low enough to actually be climbed over.
+      window:   { z: -0.15, y: 1.05, w: 1.32, h: 1.42 },           // right
+      // Moved onto the LEFT wall. On the front pier it was competing with the
+      // corridor mouth, the exit sign and the plant signage for the same two
+      // square metres, and the wall could not say what it was. The left wall is
+      // the services side — it has room, and a duct low down beside the door
+      // reads immediately as a second way in.
+      vent:     { z: -0.95, y: 0.58, w: 0.62, h: 0.52 },           // left
+      hatch:    { x: 0.55, z: 0.45, w: 0.80, h: 0.80 },            // floor
+    };
+
+    // ---- FLOOR, cut around the drainage pit --------------------------------
+    this._holedWall([-w, w], [-d, d], { u: OP.hatch.x, v: OP.hatch.z, w: OP.hatch.w, h: OP.hatch.h },
+      (u, v, uw, vh) => {
+        const p = plane(uw, vh, floorMat);
+        p.rotation.x = -Math.PI / 2; p.position.set(u, 0, v); p.receiveShadow = true; g.add(p);
+      });
     const ceil = plane(CONFIG.room.W, CONFIG.room.D, ceilMat);
     ceil.rotation.x = Math.PI / 2; ceil.position.y = h; ceil.receiveShadow = true; g.add(ceil);
-    // Back wall: never seen (no rear screen) — minimal, just to catch shadows.
+    // Back wall: never seen head-on (no rear screen) — minimal, catches shadows.
     const back = plane(CONFIG.room.W, h, wallMat);
     back.position.set(0, h / 2, d); back.rotation.y = Math.PI; back.receiveShadow = true; g.add(back);
-    const left = plane(CONFIG.room.D, h, wallMatB);
-    left.position.set(-w, h / 2, 0); left.rotation.y = Math.PI / 2; left.receiveShadow = true; g.add(left);
-    const right = plane(CONFIG.room.D, h, wallMatC);
-    right.position.set(w, h / 2, 0); right.rotation.y = -Math.PI / 2; right.receiveShadow = true; g.add(right);
 
-    // ---- FRONT wall built around the corridor opening ----------------------
-    const opW = 1.30, opH = 2.15, sideW = (CONFIG.room.W - opW) / 2;
-    const fl = plane(sideW, h, wallMat); fl.position.set(-(opW / 2 + sideW / 2), h / 2, -d); fl.receiveShadow = true; g.add(fl);
+    // ---- LEFT wall: TWO apertures, the duct and the personnel door ----------
+    // Built as three z-bands so each hole is cut in its own stretch of wall.
+    const placeLeft = (u, v, uw, vh) => {
+      const p = plane(uw, vh, wallMatB);
+      p.position.set(-w, v, u); p.rotation.y = Math.PI / 2; p.receiveShadow = true; g.add(p);
+    };
+    const dL = OP.door.z - OP.door.w / 2, dR = OP.door.z + OP.door.w / 2;
+    this._holedWall([-d, dL], [0, h], { u: OP.vent.z, v: OP.vent.y, w: OP.vent.w, h: OP.vent.h }, placeLeft);
+    this._holedWall([dL, dR], [0, h], { u: OP.door.z, v: OP.door.h / 2, w: OP.door.w, h: OP.door.h }, placeLeft);
+    placeLeft((dR + d) / 2, h / 2, d - dR, h);
+
+    // ---- RIGHT wall, cut around the observation window ---------------------
+    this._holedWall([-d, d], [0, h], { u: OP.window.z, v: OP.window.y, w: OP.window.w, h: OP.window.h },
+      (u, v, uw, vh) => {
+        const p = plane(uw, vh, wallMatC);
+        p.position.set(w, v, u); p.rotation.y = -Math.PI / 2; p.receiveShadow = true; g.add(p);
+      });
+    // real corrugation, so this wall is unmistakably profiled cladding and not
+    // "grey wall #3". Skipped where the window opening is.
+    {
+      const ribs = [];
+      for (let z = -d + 0.11; z < d; z += 0.22) {
+        const inHole = z > OP.window.z - OP.window.w / 2 - 0.03 && z < OP.window.z + OP.window.w / 2 + 0.03;
+        if (inHole) continue;
+        ribs.push(z);
+      }
+      const ribMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.035, h, 0.055), wallMatC, ribs.length);
+      ribMesh.castShadow = ribMesh.receiveShadow = true;
+      const mR = new THREE.Matrix4(), qR = new THREE.Quaternion();
+      ribs.forEach((z, i) => { mR.compose(new V3(w - 0.018, h / 2, z), qR.identity(), new V3(1, 1, 1)); ribMesh.setMatrixAt(i, mR); });
+      ribMesh.instanceMatrix.needsUpdate = true; g.add(ribMesh);
+    }
+
+    // ---- FRONT wall: the corridor opening, and nothing else -----------------
+    // With the duct gone to the left wall this wall has ONE job: the way out.
+    const opW = OP.corridor.w, opH = OP.corridor.h, sideW = (CONFIG.room.W - opW) / 2;
+    const flP = plane(sideW, h, wallMat); flP.position.set(-(opW / 2 + sideW / 2), h / 2, -d); flP.receiveShadow = true; g.add(flP);
     const fr = plane(sideW, h, wallMat); fr.position.set(opW / 2 + sideW / 2, h / 2, -d); fr.receiveShadow = true; g.add(fr);
     const ft = plane(opW, h - opH, wallMat); ft.position.set(0, opH + (h - opH) / 2, -d); ft.receiveShadow = true; g.add(ft);
 
     this._corridor(new V3(0, 0, -d), opW, opH);
-    this._door(new V3(-w, 0, 0.35), Math.PI / 2);
-    this._window(new V3(w, 1.20, -0.15), -Math.PI / 2);
-    this._vent(new V3(-0.90, 0.60, -d + 0.002), 0);
-    this._hatch(new V3(0.55, 0.002, 0.45));
+    this._door(new V3(-w, 0, OP.door.z), Math.PI / 2);
+    this._window(new V3(w, OP.window.y, OP.window.z), -Math.PI / 2);
+    this._vent(new V3(-w, OP.vent.y, OP.vent.z), Math.PI / 2);
+    this._hatch(new V3(OP.hatch.x, 0, OP.hatch.z));
     this._clock(new V3(0, 2.28, -d + 0.06));
     this._props();
     this._lights();
@@ -124,18 +223,24 @@ export class Room {
     // Cells sit where a maintenance crew would actually have left them: on the
     // bench, on the shelving, by the breaker cabinet, on the crates, on the desk
     // and on the pump's flange. Each one makes you look toward a way in.
+    // Every spot is ON a surface that exists after the re-layout, and none of
+    // them sits inside a creature's approach — a cell you cannot reach without
+    // standing in a monster is not a reward, it is a bug.
     this.pickupSpots = [
-      { pos: new V3(-1.05, 0.95, 0.70), pan: -0.8 },   // maintenance bench top
-      { pos: new V3(-1.32, 0.98, -0.85), pan: -0.9 },  // industrial shelving
-      { pos: new V3(1.30, 0.92, 0.75), pan: 0.85 },    // ledge of the breaker cabinet
-      { pos: new V3(1.26, 0.90, 0.95), pan: 0.8 },     // stacked crate, right-back
-      { pos: new V3(-0.50, 0.86, 1.08), pan: -0.3 },   // control desk
-      { pos: new V3(1.18, 0.60, -0.95), pan: 0.7 },    // pump flange (faces the window)
+      { pos: new V3(-0.72, 0.99, 1.18), pan: -0.4 },   // maintenance bench, left end
+      { pos: new V3(-0.12, 0.99, 1.16), pan: -0.1 },   // maintenance bench, right end
+      { pos: new V3(-1.34, 0.80, 1.20), pan: -0.85 },  // industrial shelving, upper shelf
+      { pos: new V3(1.36, 1.56, 1.05), pan: 0.85 },    // top of the breaker cabinet
+      { pos: new V3(0.76, 1.14, 1.26), pan: 0.45 },    // stacked crate, right-back
+      { pos: new V3(1.24, 0.40, -0.90), pan: 0.7 },    // pump plinth (faces the window)
     ];
   }
 
   _corridor(pos, opW, opH) {
+    // tagged so the clearance audit can tell an access's own hardware apart
+    // from room furniture: brushing your own doorframe is not a defect.
     const grp = new THREE.Group(); grp.position.copy(pos); this.group.add(grp);
+    grp.userData.access = 'corridor';
     const L = 3.2;
     const tube = new THREE.Mesh(new THREE.BoxGeometry(opW, opH, L), this.voidMat);
     tube.position.set(0, opH / 2, -L / 2); tube.receiveShadow = true; grp.add(tube);
@@ -143,18 +248,55 @@ export class Room {
     bar(-opW / 2, opH / 2, 0, 0.09, opH, 0.17); bar(opW / 2, opH / 2, 0, 0.09, opH, 0.17); bar(0, opH, 0, opW + 0.1, 0.11, 0.17);
     // side doors down the hall: the plant continues
     const hallDoorMat = new THREE.MeshStandardMaterial({ color: 0x0b0c10, roughness: 0.95 });
-    for (const z of [-1.15, -2.30]) for (const sx of [-1, 1]) {
+    // moved clear of the cross passage at z=-2.40
+    for (const z of [-0.75, -3.05]) for (const sx of [-1, 1]) {
       const dr = new THREE.Mesh(new THREE.PlaneGeometry(0.58, 1.55), hallDoorMat);
       dr.position.set(sx * (opW / 2 - 0.012), 0.86, z); dr.rotation.y = sx * Math.PI / 2; grp.add(dr);
       const fr2 = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.6, 0.05), this.metal);
       fr2.position.set(sx * (opW / 2 - 0.03), 0.88, z + 0.31); grp.add(fr2);
     }
-    // red exit backlight at the far end -> silhouettes
-    const glow = new THREE.Mesh(new THREE.PlaneGeometry(opW * 0.8, opH * 0.62),
-      new THREE.MeshBasicMaterial({ color: 0x3a0606, toneMapped: false }));
-    glow.position.set(0, opH * 0.48, -L + 0.03); grp.add(glow);
-    const exit = new THREE.PointLight(0x771212, 1.6, 3.6, 2);
-    exit.position.set(0, 1.15, -L + 0.35); grp.add(exit);
+    // ---- THE FAR END: where the corridor actually goes ---------------------
+    // This was a flat dark-red rectangle floating at the end of the tube: it lit
+    // nothing, it was not attached to anything, and it read as "a red wall for
+    // no reason". The red now has a source and the end has a purpose — a fire
+    // exit, which is the thing the whole front wall has been pointing at.
+    const endMat = this._mat(this._tex.concrete, 1, 1, { color: 0x33363a, roughness: 0.97 });
+    const endWall = new THREE.Mesh(new THREE.PlaneGeometry(opW, opH), endMat);
+    endWall.position.set(0, opH / 2, -L + 0.01); endWall.receiveShadow = true; grp.add(endWall);
+
+    // a pair of fire doors, slightly apart so a cold line of light comes through
+    const leafMat = new THREE.MeshStandardMaterial({ color: 0x2f3a35, roughness: 0.88, metalness: 0.12 });
+    for (const sx of [-1, 1]) {
+      const leaf = new THREE.Mesh(new THREE.BoxGeometry(0.48, 1.92, 0.05), leafMat);
+      leaf.position.set(sx * 0.26, 0.96, -L + 0.06); leaf.castShadow = leaf.receiveShadow = true; grp.add(leaf);
+      // wire-glass vision panel in each leaf, lit from behind
+      const vp = new THREE.Mesh(new THREE.PlaneGeometry(0.22, 0.44),
+        new THREE.MeshBasicMaterial({ color: 0x243033, toneMapped: false }));
+      vp.position.set(sx * 0.26, 1.34, -L + 0.087); grp.add(vp);
+      const pb = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.035, 0.035), this.steel);
+      pb.position.set(sx * 0.26, 0.98, -L + 0.10); pb.castShadow = true; grp.add(pb);
+    }
+    // the gap between the leaves: a thin, cold sliver of the stairwell beyond
+    const slit = new THREE.Mesh(new THREE.PlaneGeometry(0.03, 1.86),
+      new THREE.MeshBasicMaterial({ color: 0x3d4f52, toneMapped: false }));
+    slit.position.set(0, 0.96, -L + 0.04); grp.add(slit);
+    const cold = new THREE.PointLight(0x5b7d86, 0.9, 2.2, 2);
+    cold.position.set(0, 1.05, -L + 0.30); grp.add(cold);
+
+    // the RED: a bulkhead emergency luminaire over the doors, which is what has
+    // been washing the corridor red all along
+    const bulk = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.13, 0.11), this.metal);
+    bulk.position.set(0, opH - 0.20, -L + 0.09); bulk.castShadow = true; grp.add(bulk);
+    const bulkLens = new THREE.Mesh(new THREE.PlaneGeometry(0.20, 0.085),
+      new THREE.MeshBasicMaterial({ color: 0x8e1a12, toneMapped: false }));
+    bulkLens.position.set(0, opH - 0.20, -L + 0.146); grp.add(bulkLens);
+    const exit = new THREE.PointLight(0x8e2018, 2.1, 3.8, 2);
+    exit.position.set(0, opH - 0.24, -L + 0.22); grp.add(exit);
+    // and its cage, so it is a fitting rather than a glowing patch
+    for (let i = 0; i < 3; i++) {
+      const wire = new THREE.Mesh(new THREE.BoxGeometry(0.006, 0.10, 0.006), this.steel);
+      wire.position.set(-0.07 + i * 0.07, opH - 0.20, -L + 0.152); grp.add(wire);
+    }
     // ---- 11. SERVICE PASSAGE DRESSING ------------------------------------
     // The hall read as an empty tube with a computer parked in it. These are the
     // things that would actually line a plant corridor.
@@ -185,47 +327,66 @@ export class Room {
     trayRung.instanceMatrix.needsUpdate = true; grp.add(trayRung);
     // wall boxes / junction boxes down the hall
     const jb = new THREE.InstancedMesh(new THREE.BoxGeometry(0.06, 0.16, 0.12), this.equip, 4);
-    [[-1, -0.75], [1, -1.6], [-1, -2.6], [1, -3.05]].forEach(([sx, z], i) => {
+    [[-1, -0.45], [1, -1.6], [-1, -2.55], [1, -2.95]].forEach(([sx, z], i) => {
       m2.compose(new V3(sx * (opW / 2 - 0.04), 1.35, z), q2.identity(), new V3(1, 1, 1));
       jb.setMatrixAt(i, m2);
     });
     jb.instanceMatrix.needsUpdate = true; grp.add(jb);
     // a safety rail part-way down: reads as depth and as a real workplace
     const railGrp = new THREE.Group(); railGrp.position.set(0, 0, -1.95); grp.add(railGrp);
+    // Shortened and pushed against the wall. At 0.62 m long it reached x=-0.01,
+    // straight through the middle of the only lane anything can walk down.
     for (const yy of [0.55, 0.92]) {
-      const bar2 = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.62, 8), this.steel);
-      bar2.rotation.z = Math.PI / 2; bar2.position.set(-opW / 2 + 0.33, yy, 0); bar2.castShadow = true; railGrp.add(bar2);
+      const bar2 = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.30, 8), this.metal);
+      bar2.rotation.z = Math.PI / 2; bar2.position.set(-opW / 2 + 0.17, yy, 0); bar2.castShadow = true; railGrp.add(bar2);
     }
-    const post = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.95, 8), this.steel);
-    post.position.set(-opW / 2 + 0.04, 0.475, 0); post.castShadow = true; railGrp.add(post);
-    const post2 = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.95, 8), this.steel);
-    post2.position.set(-opW / 2 + 0.62, 0.475, 0); post2.castShadow = true; railGrp.add(post2);
+    for (const px of [-opW / 2 + 0.035, -opW / 2 + 0.305]) {
+      const po = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.95, 8), this.metal);
+      po.position.set(px, 0.475, 0); po.castShadow = true; railGrp.add(po);
+    }
+    // a toe board at the bottom: without it the two rails and two posts read as
+    // an abstract white rectangle hanging in the corridor rather than a guard
+    const toe = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.10, 0.02), this.rust);
+    toe.position.set(-opW / 2 + 0.17, 0.09, 0); toe.castShadow = true; railGrp.add(toe);
     // a stacked pallet and a drum against the right wall of the hall
-    const pallet = new THREE.Group(); pallet.position.set(opW / 2 - 0.28, 0.06, -2.55); grp.add(pallet);
+    const pallet = new THREE.Group(); pallet.position.set(opW / 2 - 0.17, 0.06, -2.55); grp.add(pallet);
     for (let k = 0; k < 4; k++) {
-      const board = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.022, 0.075), this.timber);
+      const board = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.022, 0.075), this.timber);
       board.position.set(0, 0.05, -0.17 + k * 0.115); board.castShadow = true; pallet.add(board);
     }
     for (const bz of [-0.16, 0, 0.16]) {
-      const bear = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.045, 0.05), this.timber);
+      const bear = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.045, 0.05), this.timber);
       bear.position.set(0, 0.022, bz); pallet.add(bear);
     }
     const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.52, 14), this.rust);
-    drum.position.set(opW / 2 - 0.26, 0.26, -1.25); drum.castShadow = drum.receiveShadow = true; grp.add(drum);
+    drum.position.set(opW / 2 - 0.17, 0.26, -1.10); drum.castShadow = drum.receiveShadow = true; grp.add(drum);
     for (const ry2 of [0.16, 0.36]) {
       const rib = new THREE.Mesh(new THREE.TorusGeometry(0.163, 0.012, 5, 14), this.rust);
-      rib.rotation.x = Math.PI / 2; rib.position.set(opW / 2 - 0.26, ry2, -1.25); grp.add(rib);
+      rib.rotation.x = Math.PI / 2; rib.position.set(opW / 2 - 0.17, ry2, -1.10); grp.add(rib);
     }
     // floor grating panel further down: breaks the flat floor of the hall
-    const grate = new THREE.InstancedMesh(new THREE.BoxGeometry(0.62, 0.012, 0.03), this.steel, 9);
+    const grate = new THREE.InstancedMesh(new THREE.BoxGeometry(0.62, 0.012, 0.03), this.iron, 9);
     for (let k = 0; k < 9; k++) { m2.compose(new V3(0, 0.012, -1.5 - k * 0.06), q2.identity(), new V3(1, 1, 1)); grate.setMatrixAt(k, m2); }
     grate.instanceMatrix.needsUpdate = true; grp.add(grate);
+
+    // A real side passage at the depth corridorCross uses. Without it the
+    // "crosses without entering" false alarm walked through solid wall.
+    const crossVoid = new THREE.Mesh(new THREE.BoxGeometry(3.4, 1.95, 0.92), this.voidMat);
+    crossVoid.position.set(0, 0.975, -3.30); grp.add(crossVoid);
+    for (const sx of [-1, 1]) {
+      const jam = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.95, 0.07), this.metal);
+      jam.position.set(sx * (opW / 2 + 0.02), 0.975, -3.30 + sx * 0.42);
+      jam.castShadow = true; grp.add(jam);
+    }
 
     this.corridor = grp;
   }
 
   _door(pos, ry) {
+    // tagged so the clearance audit can tell an access's own hardware apart
+    // from room furniture: brushing your own doorframe is not a defect.
     const grp = new THREE.Group(); grp.position.copy(pos); grp.rotation.y = ry; this.group.add(grp);
+    grp.userData.access = 'door';
     const recess = new THREE.Mesh(new THREE.BoxGeometry(1.06, 2.1, 1.0), this.voidMat);
     recess.position.set(0, 1.05, -0.55); recess.receiveShadow = true; grp.add(recess);
     const jamb = (x) => { const m = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.14, 0.17), this.metal); m.position.set(x, 1.07, 0); m.castShadow = m.receiveShadow = true; grp.add(m); };
@@ -239,12 +400,29 @@ export class Room {
     leaf.castShadow = leaf.receiveShadow = true; pivot.add(leaf);
     const handle = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.05, 0.14), this.steel);
     handle.position.set(0.9, 0.02, 0.08); pivot.add(handle);
+    // REAR FACE. With the door open you look at its back, and it was a blank
+    // slab with every piece of hardware on the far side. Real steel doors are
+    // braced: two rails, three stiles and a bottom channel, which also give the
+    // beam something to rake across.
+    for (const ry2 of [-0.62, 0.28, 0.92]) {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.94, 0.07, 0.02), this.enamel);
+      rail.position.set(0.51, ry2, -0.04); rail.castShadow = true; pivot.add(rail);
+    }
+    for (const rx of [0.14, 0.51, 0.88]) {
+      const stile = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.86, 0.018), this.enamel);
+      stile.position.set(rx, 0.02, -0.038); stile.castShadow = true; pivot.add(stile);
+    }
+    const closer = new THREE.Mesh(new THREE.BoxGeometry(0.20, 0.06, 0.06), this.metal);
+    closer.position.set(0.22, 0.94, -0.06); closer.castShadow = true; pivot.add(closer);
     this.doorPivot = pivot;
     pivot.rotation.y = 0;              // shut in its frame at the start of a night
   }
 
   _window(pos, ry) {
+    // tagged so the clearance audit can tell an access's own hardware apart
+    // from room furniture: brushing your own doorframe is not a defect.
     const grp = new THREE.Group(); grp.position.copy(pos); grp.rotation.y = ry; this.group.add(grp);
+    grp.userData.access = 'window';
 
     // The whole right wall used to read as one uniform mass because the frame,
     // the sill and the wall were all variants of the same metal at similar
@@ -252,10 +430,14 @@ export class Room {
     //   frame   = machined steel, smooth + metallic  -> catches a hard highlight
     //   surround= rough painted concrete lintel      -> matte, kills reflection
     //   sill    = heavily worn, deep normals         -> broken, gritty
+    // Machined-looking steel at roughness 0.42 / metalness 0.92 was the single
+    // worst offender for glare: the beam turned all five frame bars into mirror
+    // streaks. A window frame that has been in a damp plant for thirty years is
+    // painted, pitted and oxidised — metallic, but the highlight has to SPREAD.
     const steel = new THREE.MeshStandardMaterial({
-      color: 0x8f959c, roughness: 0.42, metalness: 0.92,
+      color: 0x7e848b, roughness: 0.58, metalness: 0.50,
       map: this.metal.map, normalMap: this.metal.normalMap,
-      normalScale: new THREE.Vector2(0.5, 0.5),
+      normalScale: new THREE.Vector2(0.7, 0.7),
     });
     const lintelMat = new THREE.MeshStandardMaterial({
       color: 0x6d6a63, roughness: 0.98, metalness: 0.0,
@@ -269,54 +451,112 @@ export class Room {
     });
     this._winSteel = steel;
 
+    // Built from the opening's real dimensions rather than hard-coded numbers,
+    // so the frame, sill and surround can never drift out of register with the
+    // hole that is actually cut in the wall.
+    const O = this.openings.window;
+    const HW = O.w / 2, HH = O.h / 2, BAR = 0.11;
+
     // structural surround: a concrete lintel over it and two pilasters, so the
     // opening is framed by architecture instead of floating in a flat wall
-    const lintel = new THREE.Mesh(new THREE.BoxGeometry(1.86, 0.2, 0.16), lintelMat);
-    lintel.position.set(0, 0.72, 0.06); lintel.castShadow = lintel.receiveShadow = true; grp.add(lintel);
+    const lintel = new THREE.Mesh(new THREE.BoxGeometry(O.w + 0.54, 0.2, 0.16), lintelMat);
+    lintel.position.set(0, HH + 0.10, 0.06); lintel.castShadow = lintel.receiveShadow = true; grp.add(lintel);
     for (const sx of [-1, 1]) {
-      const pil = new THREE.Mesh(new THREE.BoxGeometry(0.18, 1.72, 0.13), lintelMat);
-      pil.position.set(sx * 0.85, -0.16, 0.05); pil.castShadow = pil.receiveShadow = true; grp.add(pil);
+      const pil = new THREE.Mesh(new THREE.BoxGeometry(0.18, O.h + 0.30, 0.13), lintelMat);
+      pil.position.set(sx * (HW + 0.19), -0.05, 0.05); pil.castShadow = pil.receiveShadow = true; grp.add(pil);
     }
 
-    // the frame itself: 4 machined bars, so the glazing line is a real recess
+    // the frame itself: 4 bars, so the glazing line is a real recess
     const bar = (sx, sy, px, py) => {
       const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, 0.14), steel);
       m.position.set(px, py, 0.02); m.castShadow = m.receiveShadow = true; grp.add(m);
     };
-    bar(1.52, 0.11, 0, 0.52); bar(1.52, 0.11, 0, -0.52);
-    bar(0.11, 1.04, -0.70, 0); bar(0.11, 1.04, 0.70, 0);
-    // central mullion: gives the opening a readable division
-    const mull = new THREE.Mesh(new THREE.BoxGeometry(0.055, 1.0, 0.1), steel);
-    mull.position.set(0, 0, 0.02); mull.castShadow = true; grp.add(mull);
+    // Mounted on the wall FACE, around the hole — not inside it. Sitting inside,
+    // the top bar ate the last 11 cm of a 1.42 m aperture and a standing creature
+    // put its head through it.
+    bar(O.w + 0.20 + BAR * 2, BAR, 0, HH + BAR / 2); bar(O.w + 0.20 + BAR * 2, BAR, 0, -HH - BAR / 2);
+    bar(BAR, O.h, -HW - BAR / 2, 0); bar(BAR, O.h, HW + BAR / 2, 0);
+    // (A snapped transom stub used to hang across the opening here. Lit from the
+    //  room it read as a white plank floating in a grey hole, so it is gone: the
+    //  bent sill lip already tells the "something came through" story.)
 
-    const hole = new THREE.Mesh(new THREE.BoxGeometry(1.32, 0.96, 0.9), this.voidMat);
-    hole.position.set(0, 0, -0.48); grp.add(hole);
+    // ---- WHAT IS BEHIND THE GLASS -----------------------------------------
+    // This was a pure-black void box, and it was the single worst thing on the
+    // right wall: with no surface detail inside it, the only thing visible in the
+    // aperture was the haze of the beam itself, which the eye reads as a flat
+    // pale panel — a filled-in alcove, not a hole. Black is not depth. Depth is
+    // a dim surface far enough back, with something in front of it.
+    // Distance is the only thing that actually darkens this: the lamp is 46 cd,
+    // so at 2 m even a 0.09 albedo comes back as mid grey and a flat plane
+    // filling the aperture reads pale however dark you paint it. At 1.5 m the
+    // 1/d**2 falloff does the work, and the pipework staggered in front of it
+    // gives the depth cue that black alone never provided.
+    const DEPTH_W = 1.50;
+    const sides = new THREE.Mesh(new THREE.BoxGeometry(O.w, O.h, DEPTH_W), this.voidMat);
+    sides.position.set(0, 0, -DEPTH_W / 2 - 0.01); grp.add(sides);
+    // a riveted bulkhead closing the far side: dark, but it CATCHES the beam,
+    // which is what gives the aperture a readable back plane
+    const bulkMat = this._mat(this._tex.metal, 1.6, 1.6, { color: 0x1b1f23, metalness: 0.22, roughness: 0.9 });
+    const far = new THREE.Mesh(new THREE.PlaneGeometry(O.w * 1.3, O.h * 1.3), bulkMat);
+    far.position.set(0, 0, -DEPTH_W); far.rotation.y = Math.PI; far.receiveShadow = true; grp.add(far);
+    // bolt line and a duct crossing it, so there is scale and occlusion in there
+    const rv = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.014, 0.016, 0.02, 6), this.metal, 8);
+    const mV = new THREE.Matrix4(), qV = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0));
+    for (let i = 0; i < 8; i++) { mV.compose(new V3(-O.w * 0.42 + i * (O.w * 0.12), O.h * 0.34, -0.30), qV, new V3(1, 1, 1)); rv.setMatrixAt(i, mV); }
+    rv.instanceMatrix.needsUpdate = true; grp.add(rv);
+    const crossPipe = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, O.w * 1.5, 10), this.rust);
+    crossPipe.rotation.z = Math.PI / 2; crossPipe.position.set(0, -O.h * 0.22, -0.42);
+    crossPipe.castShadow = true; grp.add(crossPipe);
 
-    const sill = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.11, 0.32), sillMat);
-    sill.position.set(0, -0.6, 0.12); sill.castShadow = sill.receiveShadow = true; grp.add(sill);
+    // sill: a real ledge at climbing height, standing proud of the wall
+    const sill = new THREE.Mesh(new THREE.BoxGeometry(O.w + 0.30, 0.12, 0.34), sillMat);
+    sill.position.set(0, -HH - 0.06, 0.13); sill.castShadow = sill.receiveShadow = true; grp.add(sill);
     // bent-up lip on the sill: something has been climbing over this
-    const lip = new THREE.Mesh(new THREE.BoxGeometry(1.62, 0.05, 0.04), sillMat);
-    lip.position.set(0, -0.55, 0.27); lip.rotation.x = -0.4; grp.add(lip);
+    const lip = new THREE.Mesh(new THREE.BoxGeometry(O.w + 0.30, 0.05, 0.04), sillMat);
+    lip.position.set(0, -HH - 0.01, 0.29); lip.rotation.x = -0.4; grp.add(lip);
+    // and the wall under the sill takes the scuffing from being climbed
+    const scuff = new THREE.Mesh(new THREE.BoxGeometry(O.w + 0.10, 0.30, 0.03), sillMat);
+    scuff.position.set(0, -HH - 0.26, 0.015); scuff.receiveShadow = true; grp.add(scuff);
 
-    // remaining glass: bright, sharp, clearly a different substance
+    // Remaining glass. Was roughness 0.03 with reflectivity 1.0 — a mirror, and
+    // the second big source of glare. Broken safety glass is crazed and filthy:
+    // it still reads as glass, it just stops behaving like a lens.
+    // Rendered against the void these read as white paper scraps taped into a
+    // grey rectangle: too big, too pale, too opaque. Broken glass in the dark is
+    // mostly EDGE — small, dark, and only visible where a facet catches the beam.
     const shard = new THREE.MeshPhysicalMaterial({
-      color: 0x9fc4cc, roughness: 0.03, metalness: 0.0,
-      transmission: 0.85, transparent: true, opacity: 0.3, ior: 1.52,
-      reflectivity: 1.0, side: THREE.DoubleSide,
+      color: 0x2e4147, roughness: 0.22, metalness: 0.0,
+      transmission: 0.55, transparent: true, opacity: 0.20, ior: 1.52,
+      reflectivity: 0.22, side: THREE.DoubleSide,
     });
-    for (let i = 0; i < 10; i++) {
-      const s = new THREE.Mesh(new THREE.PlaneGeometry(0.14 + Math.random() * 0.2, 0.14 + Math.random() * 0.22), shard);
+    // Shards cling to the frame edges ONLY, inside the aperture. They used to be
+    // scattered across a 1.0 x 0.72 box that reached out past the opening and
+    // intersected whatever furniture stood near the wall.
+    const gw = this.openings.window.w / 2 - 0.10, gh = this.openings.window.h / 2 - 0.08;
+    // Teeth still in the frame: they hug the perimeter, they are small, and none
+    // of them floats in the middle of the aperture.
+    for (let i = 0; i < 14; i++) {
+      const sz = 0.035 + Math.random() * 0.05;
+      const sh = new THREE.Mesh(new THREE.PlaneGeometry(sz, sz * (0.7 + Math.random() * 0.7)), shard);
       const e = i % 4;
-      s.position.set(e === 0 ? -0.58 : e === 1 ? 0.58 : (Math.random() - 0.5) * 1.0,
-                     e === 2 ? -0.42 : e === 3 ? 0.44 : (Math.random() - 0.5) * 0.72, 0.055);
-      s.rotation.z = (Math.random() - 0.5) * 0.8; s.rotation.y = (Math.random() - 0.5) * 0.3;
-      grp.add(s);
+      const along = (Math.random() - 0.5) * 1.7;
+      if (e === 0) sh.position.set(-gw + 0.01, along * gh, 0.045);
+      else if (e === 1) sh.position.set(gw - 0.01, along * gh, 0.045);
+      else if (e === 2) sh.position.set(along * gw, -gh + 0.01, 0.045);
+      else sh.position.set(along * gw, gh - 0.01, 0.045);
+      sh.rotation.z = (Math.random() - 0.5) * 1.1; sh.rotation.y = (Math.random() - 0.5) * 0.5;
+      grp.add(sh);
     }
-    // glass grit on the sill and floor below: tells the story and adds sparkle
-    const grit = new THREE.InstancedMesh(new THREE.TetrahedronGeometry(0.016), shard, 14);
+    // Grit: half resting ON the sill top, half on the slab directly beneath the
+    // opening. Both bands are now clamped to surfaces that actually exist there —
+    // the old version left seven pieces floating in mid-air beside the wall.
+    const grit = new THREE.InstancedMesh(new THREE.TetrahedronGeometry(0.014), shard, 14);
     const mm = new THREE.Matrix4(), qq = new THREE.Quaternion();
     for (let i = 0; i < 14; i++) {
-      mm.compose(new V3((Math.random() - 0.5) * 1.4, i < 7 ? -0.53 : -1.2, 0.16 + Math.random() * 0.22),
+      const onSill = i < 7;
+      mm.compose(new V3((Math.random() - 0.5) * (onSill ? 1.34 : 1.0),
+                        onSill ? -0.535 : -1.195,
+                        onSill ? 0.06 + Math.random() * 0.16 : 0.10 + Math.random() * 0.26),
         qq.setFromEuler(new THREE.Euler(Math.random() * 3, Math.random() * 3, Math.random() * 3)), new V3(1, 1, 1));
       grit.setMatrixAt(i, mm);
     }
@@ -324,36 +564,171 @@ export class Room {
 
     // LOCAL LIGHT: a dead-cold spill from the machine room behind, so the hole
     // reads as depth and anything climbing through is backlit.
-    const back = new THREE.PointLight(0x2a4a66, 1.5, 2.6, 2);
-    back.position.set(0, 0, -0.7); grp.add(back);
+    // At 1.5 the spill filled the recess and the aperture read as a shallow grey
+    // alcove instead of a hole into somewhere. Dropped and pushed to the side so
+    // it RIMS the opening: the void stays black, the edges get a cold line, and
+    // anything climbing through is backlit.
+    const back = new THREE.PointLight(0x2a4a66, 0.42, 2.0, 2);
+    back.position.set(-O.w * 0.45, -0.20, -0.62); grp.add(back);
     this.windowLight = back;
+    // a hint of the hall beyond: two dark verticals, so the black has depth
+    const beyond = new THREE.MeshStandardMaterial({ color: 0x0d1114, roughness: 0.95, metalness: 0.1 });
+    for (const [bx, br] of [[-0.34, 0.05], [0.38, 0.07]]) {
+      const pipeB = new THREE.Mesh(new THREE.CylinderGeometry(br, br, O.h * 1.4, 8), beyond);
+      pipeB.position.set(bx, 0, -0.72); pipeB.castShadow = true; grp.add(pipeB);
+    }
 
     this.window = grp;
   }
 
+  /**
+   * The air duct. The hole is now genuinely cut in the pier, so this is a real
+   * shaft you can look into — which is the whole point of the access, and what
+   * made the old version unreadable (a grille painted on a solid wall, with the
+   * duct hidden behind it).
+   *
+   * The louvre is hinged at the TOP and swings up and out, so it clears the
+   * opening completely: nothing crawling out has to pass through it.
+   */
   _vent(pos, ry) {
+    // tagged so the clearance audit can tell an access's own hardware apart
+    // from room furniture: brushing your own doorframe is not a defect.
+    const O = this.openings.vent;
     const grp = new THREE.Group(); grp.position.copy(pos); grp.rotation.y = ry; this.group.add(grp);
-    const frame = new THREE.Mesh(new THREE.BoxGeometry(1.02, 0.7, 0.08), this.metal);
-    frame.castShadow = frame.receiveShadow = true; grp.add(frame);
-    const duct = new THREE.Mesh(new THREE.BoxGeometry(0.86, 0.56, 0.9), this.voidMat);
-    duct.position.set(0, 0, -0.47); grp.add(duct);
-    const cover = new THREE.Group(); cover.position.set(0, 0.31, 0.05); grp.add(cover);
-    for (let i = 0; i < 6; i++) { const s = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.07, 0.03), this.metal); s.position.set(0, -0.07 - i * 0.09, 0); s.castShadow = true; cover.add(s); }
-    const plate = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.6, 0.014), this.metal);
-    plate.position.set(0, -0.3, -0.02); cover.add(plate);
+    grp.userData.access = 'vent';
+    const hw = O.w / 2, hh = O.h / 2;
+
+    // the shaft itself: sleeve + closed far end, with stiffening ribs so it
+    // reads as ductwork and gives the beam something to fall across
+    const sleeve = new THREE.Mesh(new THREE.BoxGeometry(O.w, O.h, 1.10), this.voidMat);
+    sleeve.position.set(0, 0, -0.56); grp.add(sleeve);
+    const ductMat = this._mat(this._tex.rust, 1, 1, { color: 0x23262a, metalness: 0.18, roughness: 0.95 });
+    for (let i = 0; i < 3; i++) {
+      const rib = new THREE.Mesh(new THREE.BoxGeometry(O.w - 0.03, 0.028, 0.028), ductMat);
+      rib.position.set(0, -hh + 0.035, -0.22 - i * 0.3); grp.add(rib);
+      const rib2 = new THREE.Mesh(new THREE.BoxGeometry(0.028, O.h - 0.03, 0.028), ductMat);
+      rib2.position.set(-hw + 0.03, 0, -0.22 - i * 0.3); grp.add(rib2);
+    }
+
+    // flanged collar around the mouth: four bars with a visible rebate
+    const collar = (sx, sy, px, py) => {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, 0.075), this.metal);
+      m.position.set(px, py, 0.03); m.castShadow = m.receiveShadow = true; grp.add(m);
+    };
+    collar(O.w + 0.14, 0.07, 0, hh + 0.035); collar(O.w + 0.14, 0.07, 0, -hh - 0.035);
+    collar(0.07, O.h + 0.14, -hw - 0.035, 0); collar(0.07, O.h + 0.14, hw + 0.035, 0);
+    // fixing screws on the collar, instanced
+    const scr = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.008, 0.008, 0.012, 6), this.steel, 8);
+    const mS = new THREE.Matrix4(), qS = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0));
+    [[-hw - 0.035, hh + 0.035], [hw + 0.035, hh + 0.035], [-hw - 0.035, -hh - 0.035], [hw + 0.035, -hh - 0.035],
+     [0, hh + 0.035], [0, -hh - 0.035], [-hw - 0.035, 0], [hw + 0.035, 0]]
+      .forEach(([sx, sy], i) => { mS.compose(new V3(sx, sy, 0.072), qS, new V3(1, 1, 1)); scr.setMatrixAt(i, mS); });
+    scr.instanceMatrix.needsUpdate = true; grp.add(scr);
+
+    // hinged louvre: pivot on the TOP edge, blades + backing plate below it
+    const cover = new THREE.Group(); cover.position.set(0, hh, 0.055); grp.add(cover);
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(O.w + 0.05, O.h + 0.04, 0.012), this.metal);
+    plate.position.set(0, -O.h / 2, -0.004); plate.castShadow = plate.receiveShadow = true; cover.add(plate);
+    const blades = new THREE.InstancedMesh(new THREE.BoxGeometry(O.w - 0.02, 0.045, 0.022), this.metal, 5);
+    blades.castShadow = true;
+    const mB = new THREE.Matrix4(), qB = new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.42, 0, 0));
+    for (let i = 0; i < 5; i++) { mB.compose(new V3(0, -0.065 - i * 0.098, 0.012), qB, new V3(1, 1, 1)); blades.setMatrixAt(i, mB); }
+    blades.instanceMatrix.needsUpdate = true; cover.add(blades);
+    // the two hinge knuckles it actually turns on
+    for (const sx of [-1, 1]) {
+      const kn = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.05, 8), this.steel);
+      kn.rotation.z = Math.PI / 2; kn.position.set(sx * (hw - 0.06), 0, -0.008); cover.add(kn);
+    }
     this.ventCover = cover;
   }
 
+  /**
+   * The drainage access — the floor screen's set piece. The floor now has a real
+   * hole in it, so the pit is a place, not a decal: chamber walls, a sump and
+   * climbing rungs going down into it.
+   *
+   * The grating is hinged on the FAR (+Z) edge and swings back past vertical, so
+   * the whole aperture is clear before anything comes up through it.
+   */
   _hatch(pos) {
+    // tagged so the clearance audit can tell an access's own hardware apart
+    // from room furniture: brushing your own doorframe is not a defect.
+    const O = this.openings.hatch;
     const grp = new THREE.Group(); grp.position.copy(pos); this.group.add(grp);
-    const pit = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.62, 0.8), this.voidMat);
-    pit.position.set(0, -0.31, 0); grp.add(pit);
-    const lip = new THREE.Mesh(new THREE.BoxGeometry(0.92, 0.03, 0.92), this.metal);
-    lip.position.set(0, 0.005, 0); lip.receiveShadow = true; grp.add(lip);
-    const lid = new THREE.Group(); lid.position.set(0, 0.02, -0.4); grp.add(lid);
-    for (let i = -2; i <= 2; i++) {
-      const b = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.03, 0.05), this.metal); b.position.set(0, 0, 0.4 + i * 0.16); b.castShadow = true; lid.add(b);
-      const c = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.03, 0.78), this.metal); c.position.set(i * 0.16, 0, 0.4); c.castShadow = true; lid.add(c);
+    grp.userData.access = 'hatch';
+    const R = O.w / 2;                       // 0.40
+    const DEPTH = 0.72;
+    const iron = this.iron;
+
+    // --- the chamber: four walls, so looking in reads as depth ---------------
+    // Was 0x2b2d31 and the beam turned the chamber into a pale grey box. A wet
+    // drainage pit is nearly black; only the rungs should catch anything.
+    const wallMat = this._mat(this._tex.concrete, 1, 1, { color: 0x14171a, roughness: 0.98, metalness: 0.0 });
+    for (const [px, pz, sx, sz] of [[0, -R, O.w, 0.02], [0, R, O.w, 0.02], [-R, 0, 0.02, O.w], [R, 0, 0.02, O.w]]) {
+      const s = new THREE.Mesh(new THREE.BoxGeometry(sx || 0.02, DEPTH, sz || 0.02), wallMat);
+      s.position.set(px, -DEPTH / 2, pz); s.receiveShadow = true; grp.add(s);
+    }
+    const sump = new THREE.Mesh(new THREE.PlaneGeometry(O.w, O.w),
+      new THREE.MeshStandardMaterial({ color: 0x0a0c0e, roughness: 0.35, metalness: 0.1 }));
+    sump.rotation.x = -Math.PI / 2; sump.position.y = -DEPTH; sump.receiveShadow = true; grp.add(sump);
+    // climbing rungs down the near wall: says a person goes down there
+    const rung = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.016, 0.016, 0.26, 7), iron, 4);
+    rung.castShadow = true;
+    const mR = new THREE.Matrix4(), qR = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, Math.PI / 2));
+    for (let i = 0; i < 4; i++) { mR.compose(new V3(0, -0.14 - i * 0.17, R - 0.05), qR, new V3(1, 1, 1)); rung.setMatrixAt(i, mR); }
+    rung.instanceMatrix.needsUpdate = true; grp.add(rung);
+
+    // --- cast-iron kerb sitting proud of the slab ---------------------------
+    // Three sides only: the -Z side is the walkway approach, and it is the side
+    // anything climbing out steps over. A 35 mm kerb there was clipping the
+    // creature's feet on every exit, so that edge is left flush with the slab.
+    for (const [px, pz, sx, sz] of [[0, R + 0.045, O.w + 0.18, 0.09],
+                                    [-R - 0.045, 0, 0.09, O.w], [R + 0.045, 0, 0.09, O.w]]) {
+      const k = new THREE.Mesh(new THREE.BoxGeometry(sx, 0.035, sz), iron);
+      k.position.set(px, 0.017, pz); k.castShadow = k.receiveShadow = true; grp.add(k);
+    }
+    // flush nosing on the approach edge instead
+    const nose = new THREE.Mesh(new THREE.BoxGeometry(O.w + 0.18, 0.012, 0.09), iron);
+    nose.position.set(0, 0.006, -R - 0.045); nose.receiveShadow = true; grp.add(nose);
+
+    // --- the grating: bearing bars on edge + transverse rods + a bolted frame
+    const lid = new THREE.Group();
+    lid.position.set(0, 0.035, R);            // hinge line on the FAR edge
+    grp.add(lid);
+    const inner = O.w - 0.05;
+    for (const [sx, sz, px, pz] of [[inner + 0.06, 0.05, 0, 0], [inner + 0.06, 0.05, 0, -inner],
+                                    [0.05, inner, -(inner + 0.005) / 2, -inner / 2], [0.05, inner, (inner + 0.005) / 2, -inner / 2]]) {
+      const f = new THREE.Mesh(new THREE.BoxGeometry(sx, 0.038, sz), iron);
+      f.position.set(px, 0, pz); f.castShadow = f.receiveShadow = true; lid.add(f);
+    }
+    // bearing bars: tall and thin, on edge — this is what a grating actually is
+    const nBar = 11;
+    const bars = new THREE.InstancedMesh(new THREE.BoxGeometry(0.012, 0.034, inner), iron, nBar);
+    bars.castShadow = bars.receiveShadow = true;
+    const mB = new THREE.Matrix4(), qB = new THREE.Quaternion();
+    for (let i = 0; i < nBar; i++) {
+      mB.compose(new V3(-inner / 2 + (i + 0.5) * (inner / nBar), 0, -inner / 2), qB.identity(), new V3(1, 1, 1));
+      bars.setMatrixAt(i, mB);
+    }
+    bars.instanceMatrix.needsUpdate = true; lid.add(bars);
+    // twisted cross rods, sitting lower so the two layers read separately
+    const nRod = 5;
+    const rods = new THREE.InstancedMesh(new THREE.BoxGeometry(inner, 0.009, 0.009), iron, nRod);
+    rods.castShadow = true;
+    for (let i = 0; i < nRod; i++) {
+      mB.compose(new V3(0, -0.008, -0.035 - i * (inner - 0.07) / (nRod - 1)),
+        qB.setFromEuler(new THREE.Euler(0, 0, 0.5)), new V3(1, 1, 1));
+      rods.setMatrixAt(i, mB);
+    }
+    rods.instanceMatrix.needsUpdate = true; lid.add(rods);
+    // recessed lifting handle at the free edge, and the two hinge knuckles
+    const handle = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.009, 5, 12, Math.PI), this.steel);
+    handle.rotation.set(Math.PI / 2, 0, 0); handle.position.set(0, 0.02, -inner + 0.07);
+    handle.castShadow = true; lid.add(handle);
+    for (const sx of [-1, 1]) {
+      const kn = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.017, 0.06, 8), iron);
+      kn.rotation.z = Math.PI / 2; kn.position.set(sx * (inner / 2 - 0.07), 0, 0.012);
+      kn.castShadow = true; lid.add(kn);
     }
     this.hatchLid = lid;
   }
@@ -407,40 +782,62 @@ export class Room {
     pipes.castShadow = true;
     [-1.15, 1.05, 1.25].forEach((x, i) => { m.compose(new V3(x, h - 0.13, 0), q.setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0)), new V3(1, 1, 1)); pipes.setMatrixAt(i, m); });
     pipes.instanceMatrix.needsUpdate = true; this.group.add(pipes);
-    for (let i = 0; i < 3; i++) { const c = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.52, 6), this.metal); c.position.set(-0.3 + i * 0.42, h - 0.28, 0.9); c.rotation.z = 0.22 - i * 0.11; c.castShadow = true; this.group.add(c); }
+    // (Three short rods used to hang here from nothing at all, tilted at random,
+    //  crossing the cable tray. They represented no object and were the "bar in
+    //  the middle of the room" that clipped everything. Deleted, not re-dressed.)
 
-    // left-wall shelving unit (breaks the wall, makes shadow S4)
-    const shelf = new THREE.Group(); shelf.position.set(-1.34, 0, -0.85); this.group.add(shelf);
-    for (let i = 0; i < 3; i++) { const s = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.03, 0.9), this.painted); s.position.set(0, 0.35 + i * 0.3, 0); s.castShadow = s.receiveShadow = true; shelf.add(s); }
-    for (const sz of [-0.43, 0.43]) { const p = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.98, 0.04), this.metal); p.position.set(0, 0.49, sz); p.castShadow = true; shelf.add(p); }
+    // ---- LEFT-BACK: shelving on the left wall, clear of the door aperture ----
+    const shelf = new THREE.Group(); shelf.position.set(-1.34, 0, 1.20); this.group.add(shelf);
+    for (let i = 0; i < 3; i++) {
+      const s = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.03, 0.55), this.painted);
+      s.position.set(0, 0.35 + i * 0.3, 0); s.castShadow = s.receiveShadow = true; shelf.add(s);
+    }
+    for (const sz of [-0.25, 0.25]) {
+      const p = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.98, 0.04), this.metal);
+      p.position.set(0, 0.49, sz); p.castShadow = true; shelf.add(p);
+    }
+    // stock on the shelves, so it is storage rather than empty planks
+    const tin = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.045, 0.045, 0.13, 10), this.rust, 5);
+    tin.castShadow = true;
+    [[0.435, -0.16], [0.435, -0.02], [0.735, 0.13], [0.735, -0.05], [0.135, 0.16]]
+      .forEach(([y, z], i) => { m.compose(new V3(-1.34, y, 1.20 + z), q.identity(), new V3(1, 1, 1)); tin.setMatrixAt(i, m); });
+    tin.instanceMatrix.needsUpdate = true; this.group.add(tin);
 
-    // crates (right-back) and desk (left-back)
-    const crates = new THREE.InstancedMesh(new THREE.BoxGeometry(0.55, 0.55, 0.55), this.timber, 4);
+    // ---- RIGHT-BACK: stacked crates, out of every approach lane -------------
+    const crates = new THREE.InstancedMesh(new THREE.BoxGeometry(0.55, 0.55, 0.55), this.timber, 3);
     crates.castShadow = crates.receiveShadow = true;
-    // Pulled off the cabinet (they blocked it) and away from the floor hatch.
-    [[w - 0.30, 0.28, d - 0.18, 0.3], [w - 0.34, 0.83, d - 0.22, 0.5], [-w + 0.95, 0.28, d - 0.16, 0.1], [-w + 0.42, 0.28, d - 0.30, -0.2]]
+    [[0.80, 0.28, 1.30, 0.3], [0.76, 0.83, 1.26, 0.5], [0.42, 0.28, 1.34, -0.2]]
       .forEach(([x, y, z, ry], i) => { m.compose(new V3(x, y, z), q.setFromEuler(new THREE.Euler(0, ry, 0)), new V3(1, 1, 1)); crates.setMatrixAt(i, m); });
     crates.instanceMatrix.needsUpdate = true; this.group.add(crates);
-
-    const desk = new THREE.Mesh(new THREE.BoxGeometry(1.0, 0.05, 0.5), this.painted);
-    desk.position.set(-0.5, 0.78, d - 0.32); desk.castShadow = desk.receiveShadow = true; this.group.add(desk);
-    for (const [lx, lz] of [[-0.95, 1.02], [-0.05, 1.02], [-0.95, 1.4], [-0.05, 1.4]]) {
-      const l = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.78, 0.05), this.metal); l.position.set(lx, 0.39, lz); l.castShadow = true; this.group.add(l);
-    }
 
     // ---- instanced hardware: hundreds of bolts/seams for ONE draw call ----
     const boltGeo = new THREE.CylinderGeometry(0.011, 0.013, 0.012, 6);
     const bolts = [];
     const pushBolt = (x, y, z, rx, ry) => bolts.push([x, y, z, rx, ry]);
     // bolt rows along the wall panel seams
+    // Bolt rows must not run across an aperture: they were being driven into
+    // thin air where the door and window holes are, and the door row sat 2 cm
+    // inside anything standing in the opening.
+    const Od = this.openings.door, Ow = this.openings.window;
+    const inDoor = (z) => z > Od.z - Od.w / 2 - 0.06 && z < Od.z + Od.w / 2 + 0.06;
+    const inWin = (z, y) => z > Ow.z - Ow.w / 2 - 0.06 && z < Ow.z + Ow.w / 2 + 0.06
+                            && y > Ow.y - Ow.h / 2 - 0.06 && y < Ow.y + Ow.h / 2 + 0.06;
     for (let i = 0; i < 7; i++) {
       const z = -1.35 + i * 0.45;
-      pushBolt(-w + 0.012, 0.16, z, 0, Math.PI / 2); pushBolt(-w + 0.012, 1.62, z, 0, Math.PI / 2);
-      pushBolt(w - 0.012, 0.16, z, 0, -Math.PI / 2); pushBolt(w - 0.012, 1.62, z, 0, -Math.PI / 2);
+      if (!inDoor(z)) { pushBolt(-w + 0.012, 0.16, z, 0, Math.PI / 2); pushBolt(-w + 0.012, 1.62, z, 0, Math.PI / 2); }
+      if (!inWin(z, 0.16)) pushBolt(w - 0.012, 0.16, z, 0, -Math.PI / 2);
+      if (!inWin(z, 1.62)) pushBolt(w - 0.012, 1.62, z, 0, -Math.PI / 2);
     }
+    const Oc = this.openings.corridor, Ov = this.openings.vent;
     for (let i = 0; i < 6; i++) {
       const x = -1.25 + i * 0.5;
-      pushBolt(x, 0.16, -d + 0.012, Math.PI / 2, 0); pushBolt(x, 2.28, -d + 0.012, Math.PI / 2, 0);
+      // two of these columns were fixed into thin air: one pair inside the
+      // corridor mouth, one inside the duct aperture.
+      const inCorr = Math.abs(x - Oc.x) < Oc.w / 2 + 0.06;
+      const inVent = Math.abs(x - Ov.x) < Ov.w / 2 + 0.06;
+      if (inCorr) continue;
+      if (!inVent) pushBolt(x, 0.16, -d + 0.012, Math.PI / 2, 0);
+      pushBolt(x, 2.28, -d + 0.012, Math.PI / 2, 0);
     }
     const boltMesh = new THREE.InstancedMesh(boltGeo, this.metal, bolts.length);
     boltMesh.castShadow = true; boltMesh.receiveShadow = true;
@@ -451,12 +848,21 @@ export class Room {
     boltMesh.instanceMatrix.needsUpdate = true; this.group.add(boltMesh);
 
     // horizontal panel seams (recessed strips) - one instanced batch
-    const seamGeo = new THREE.BoxGeometry(0.02, 0.022, CONFIG.room.D - 0.05);
-    const seams = new THREE.InstancedMesh(seamGeo, this.rust, 4);
-    seams.receiveShadow = true;
-    [[-w + 0.011, 1.62, 0, 0], [w - 0.011, 1.62, 0, 0], [-w + 0.011, 0.16, 0, 0], [w - 0.011, 0.16, 0, 0]]
-      .forEach(([x, y, z], i) => { m.compose(new V3(x, y, z), q.identity(), new V3(1, 1, 1)); seams.setMatrixAt(i, m); });
-    seams.instanceMatrix.needsUpdate = true; this.group.add(seams);
+    // Split at the apertures for the same reason as the bolts.
+    const seamRuns = [];
+    for (const [x, y, skip] of [[-w + 0.011, 1.62, 'door'], [-w + 0.011, 0.16, 'door'],
+                                [w - 0.011, 1.62, 'win'], [w - 0.011, 0.16, 'win']]) {
+      const hole = skip === 'door'
+        ? [Od.z - Od.w / 2, Od.z + Od.w / 2]
+        : (y > Ow.y - Ow.h / 2 && y < Ow.y + Ow.h / 2 ? [Ow.z - Ow.w / 2, Ow.z + Ow.w / 2] : null);
+      if (!hole) { seamRuns.push([x, y, -d + 0.025, d - 0.025]); continue; }
+      seamRuns.push([x, y, -d + 0.025, hole[0]], [x, y, hole[1], d - 0.025]);
+    }
+    seamRuns.forEach(([x, y, z0, z1]) => {
+      const len = z1 - z0; if (len < 0.05) return;
+      const sm = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.022, len), this.rust);
+      sm.position.set(x, y, (z0 + z1) / 2); sm.receiveShadow = true; this.group.add(sm);
+    });
 
     // pipe brackets clamping the ceiling runs
     const brGeo = new THREE.TorusGeometry(0.062, 0.012, 5, 10, Math.PI);
@@ -476,46 +882,112 @@ export class Room {
     jbox.position.set(-w + 0.07, 0.5, -d + 0.1); jbox.castShadow = true; this.group.add(jbox);
 
     // skirting so walls meet the floor with a real edge, not a seam
-    const skirtGeo = new THREE.BoxGeometry(0.03, 0.09, CONFIG.room.D);
-    const skirt = new THREE.InstancedMesh(skirtGeo, this.rust, 2);
-    skirt.receiveShadow = true;
-    [[-w + 0.015, 0.045, 0], [w - 0.015, 0.045, 0]].forEach(([x, y, z], i) => {
-      m.compose(new V3(x, y, z), q.identity(), new V3(1, 1, 1)); skirt.setMatrixAt(i, m);
+    // Skirting used to run wall-to-wall on both sides, straight ACROSS the door
+    // aperture — a doorway with a plinth through it, and 3 cm of it inside every
+    // creature that stood in the opening. It now stops at each side of the hole.
+    const OPd = this.openings.door, dz0 = OPd.z - OPd.w / 2, dz1 = OPd.z + OPd.w / 2;
+    const runs = [
+      [-w + 0.015, -d, dz0], [-w + 0.015, dz1, d],          // left wall, split
+      [w - 0.015, -d, d],                                    // right wall, continuous
+    ];
+    runs.forEach(([x, z0, z1]) => {
+      const len = z1 - z0; if (len < 0.05) return;
+      const sk = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.09, len), this.rust);
+      sk.position.set(x, 0.045, (z0 + z1) / 2); sk.receiveShadow = true; this.group.add(sk);
     });
-    skirt.instanceMatrix.needsUpdate = true; this.group.add(skirt);
 
     // ---- ZONE IDENTITY: each wall now reads as a specific part of a plant ---
     // LEFT-BACK = maintenance bench. Something a night watchman actually uses,
     // and the natural place to find spare cells.
     // Moved back against the rear corner: at z=0.95 this bench stood squarely
     // across the doorway approach and hid the door itself.
-    const bench = new THREE.Group(); bench.position.set(-1.02, 0, 1.19); this.group.add(bench);
-    const top = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.06, 1.15), this.painted);
+    // Moved off the LEFT wall and turned to run along the BACK wall. It used to
+    // stand at x=-1.02 z=1.19 with a 1.15 m top, which pushed it 0.27 m THROUGH
+    // the back wall and made it overlap the old desk — the two pieces of
+    // furniture were inside each other. There is now one work surface, not two.
+    const bench = new THREE.Group(); bench.position.set(-0.42, 0, 1.21); this.group.add(bench);
+    const top = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.06, 0.52), this.painted);
     top.position.set(0, 0.88, 0); top.castShadow = top.receiveShadow = true; bench.add(top);
-    for (const [bx, bz] of [[-0.25, -0.5], [0.25, -0.5], [-0.25, 0.5], [0.25, 0.5]]) {
+    // an apron under the front edge, so it is joinery and not a floating slab
+    const apron = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.09, 0.03), this.painted);
+    apron.position.set(0, 0.80, -0.245); apron.castShadow = true; bench.add(apron);
+    for (const [bx, bz] of [[-0.42, -0.21], [0.42, -0.21], [-0.42, 0.21], [0.42, 0.21]]) {
       const l = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.88, 0.06), this.metal);
       l.position.set(bx, 0.44, bz); l.castShadow = true; bench.add(l);
     }
-    const backboard = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.5, 1.1), this.rust);
-    backboard.position.set(-0.29, 1.16, 0); backboard.castShadow = true; bench.add(backboard);
+    // lower stock shelf between the legs
+    const under = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.025, 0.42), this.metal);
+    under.position.set(0, 0.24, 0); under.castShadow = under.receiveShadow = true; bench.add(under);
+    const backboard = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.5, 0.035), this.rust);
+    backboard.position.set(0, 1.16, 0.24); backboard.castShadow = true; bench.add(backboard);
     // tools hanging on the backboard: instanced, one draw call
-    const toolGeo = new THREE.BoxGeometry(0.03, 0.22, 0.03);
-    const tools = new THREE.InstancedMesh(toolGeo, this.metal, 5);
+    const tools = new THREE.InstancedMesh(new THREE.BoxGeometry(0.03, 0.22, 0.03), this.metal, 5);
     tools.castShadow = true;
     for (let i = 0; i < 5; i++) {
-      m.compose(new V3(-0.25, 1.14, -0.42 + i * 0.21), q.setFromEuler(new THREE.Euler(0, 0, (i % 2 ? 1 : -1) * 0.12)), new V3(1, 1, 1));
+      m.compose(new V3(-0.42 - 0.34 + i * 0.17, 1.14, 1.21 + 0.20),
+        q.setFromEuler(new THREE.Euler(0, 0, (i % 2 ? 1 : -1) * 0.12)), new V3(1, 1, 1));
       tools.setMatrixAt(i, m);
     }
-    tools.instanceMatrix.needsUpdate = true; bench.add(tools);
-    const vice = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.13, 0.16), this.metal);
-    vice.position.set(0.1, 0.97, -0.42); vice.castShadow = true; bench.add(vice);
+    tools.instanceMatrix.needsUpdate = true; this.group.add(tools);
+    const vice = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.13, 0.14), this.metal);
+    vice.position.set(0.34, 0.97, -0.12); vice.castShadow = true; bench.add(vice);
+
+    // ---- the watchman's chair ------------------------------------------------
+    // A manned post with nothing to sit on was the clearest "unfinished" tell in
+    // the room. Tubular frame, worn ply seat and back: a real object, and it
+    // stands where no approach route passes.
+    const chair = new THREE.Group(); chair.position.set(-0.42, 0, 0.86); chair.rotation.y = 0.22; this.group.add(chair);
+    const seatMat = this.timber, frameMat = this.metal;
+    const seat = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.035, 0.38), seatMat);
+    seat.position.y = 0.44; seat.castShadow = seat.receiveShadow = true; chair.add(seat);
+    // slight lip at the front of the pan
+    const lip2 = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.03, 0.035), seatMat);
+    lip2.position.set(0, 0.428, -0.19); lip2.rotation.x = 0.35; chair.add(lip2);
+    // splayed tubular legs
+    for (const [lx, lz] of [[-0.17, -0.15], [0.17, -0.15], [-0.17, 0.15], [0.17, 0.15]]) {
+      const l = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.44, 7), frameMat);
+      l.position.set(lx * 1.06, 0.22, lz * 1.06);
+      l.rotation.z = -Math.sign(lx) * 0.055; l.rotation.x = Math.sign(lz) * 0.055;
+      l.castShadow = true; chair.add(l);
+    }
+    // cross-braces between the legs
+    for (const [bz, bl] of [[-0.15, 0.34], [0.15, 0.34]]) {
+      const br = new THREE.Mesh(new THREE.CylinderGeometry(0.009, 0.009, bl, 6), frameMat);
+      br.rotation.z = Math.PI / 2; br.position.set(0, 0.14, bz); br.castShadow = true; chair.add(br);
+    }
+    // back uprights continuing from the rear legs, and the back panel
+    for (const bx of [-0.17, 0.17]) {
+      const u = new THREE.Mesh(new THREE.CylinderGeometry(0.013, 0.013, 0.44, 7), frameMat);
+      u.position.set(bx, 0.65, 0.17); u.rotation.x = -0.12; u.castShadow = true; chair.add(u);
+    }
+    const backRest = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.12, 0.028), seatMat);
+    backRest.position.set(0, 0.80, 0.205); backRest.rotation.x = -0.12;
+    backRest.castShadow = backRest.receiveShadow = true; chair.add(backRest);
+    const backLow = new THREE.Mesh(new THREE.BoxGeometry(0.36, 0.07, 0.026), seatMat);
+    backLow.position.set(0, 0.63, 0.185); backLow.rotation.x = -0.12; backLow.castShadow = true; chair.add(backLow);
 
     // RIGHT-BACK = electrical distribution. Tells you where the power is.
-    const cab = new THREE.Group(); cab.position.set(w - 0.14, 1.05, 0.75); this.group.add(cab);
+    // Pushed back to z=1.05. At z=0.75 it stood 24 cm from the edge of the window
+    // opening, so the wall's two subjects fought over the same square metre.
+    const cab = new THREE.Group(); cab.position.set(w - 0.14, 1.05, 1.05); this.group.add(cab);
     const box2 = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.85, 0.62), this.equip);
     box2.castShadow = box2.receiveShadow = true; cab.add(box2);
-    const doorPanel = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.78, 0.56), this.equip);
-    doorPanel.position.set(-0.12, 0, 0.03); doorPanel.rotation.y = 0.35; doorPanel.castShadow = true; cab.add(doorPanel);
+    // The panel used to be rotated about its own CENTRE, which drove its trailing
+    // half straight through the cabinet body. It now turns on a real hinge line
+    // at the front-left edge, with the leaf extending away from that line, so it
+    // swings clear the way an actual door does.
+    const cabHinge = new THREE.Group();
+    cabHinge.position.set(-0.11, 0, -0.30); cabHinge.rotation.y = -0.55; cab.add(cabHinge);
+    const doorPanel = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.78, 0.58), this.equip);
+    doorPanel.geometry.translate(0, 0, 0.29);
+    doorPanel.castShadow = doorPanel.receiveShadow = true; cabHinge.add(doorPanel);
+    // handle and hinge knuckles, so the swing is legible
+    const cabHandle = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.10, 0.022), this.steel);
+    cabHandle.position.set(-0.022, 0, 0.53); cabHandle.castShadow = true; cabHinge.add(cabHandle);
+    for (const ky of [-0.30, 0.30]) {
+      const kn = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.05, 8), this.steel);
+      kn.position.set(0, ky, 0); kn.castShadow = true; cabHinge.add(kn);
+    }
     // breaker rows behind the ajar panel
     const brk = new THREE.InstancedMesh(new THREE.BoxGeometry(0.03, 0.05, 0.02), this.metal, 12);
     for (let i = 0; i < 12; i++) {
@@ -526,20 +998,103 @@ export class Room {
     // (the old unlit yellow square here was replaced by the painted danger
     //  panel in detail.js, which reads far better and cannot glow on its own)
 
-    // RIGHT-FRONT = a dead pump with a hand valve: the "machine" of the room
-    const pump = new THREE.Group(); pump.position.set(w - 0.32, 0, -0.95); this.group.add(pump);
-    const body2 = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.19, 0.55, 12), this.equip);
-    body2.position.y = 0.28; body2.castShadow = body2.receiveShadow = true; pump.add(body2);
-    const flange = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.2, 0.04, 12), this.metal);
-    flange.position.y = 0.56; pump.add(flange);
-    const riser = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 1.6, 10), this.rust);
-    riser.position.set(0, 1.38, 0); riser.castShadow = true; pump.add(riser);
-    const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.13, 0.018, 6, 14), this.metal);
-    wheel.position.set(-0.12, 0.95, 0); wheel.rotation.y = Math.PI / 2; wheel.castShadow = true; pump.add(wheel);
-    for (let i = 0; i < 3; i++) {
-      const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.015, 0.24, 0.015), this.metal);
-      spoke.position.set(-0.12, 0.95, 0); spoke.rotation.x = i * 1.05; wheel.parent.add(spoke);
+    // ---- RIGHT-FRONT: a dead transfer pump ---------------------------------
+    // Previously a bare cylinder with a valve wheel hovering beside it, which
+    // read exactly as the user described: a barrel with an inexplicable valve
+    // over it. A pump is legible only when you can see where the fluid GOES, so
+    // the set now states the whole path — suction out of the floor, casing,
+    // motor, discharge rising through an isolating valve and elbowing into the
+    // wall — plus the plinth it is bolted to.
+    const pump = new THREE.Group(); pump.position.set(1.24, 0, -1.05); this.group.add(pump);
+    const plinth = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.11, 0.40), this._mat(this._tex.concrete, 1, 1, { color: 0x3c3f43, roughness: 0.97 }));
+    plinth.position.y = 0.055; plinth.castShadow = plinth.receiveShadow = true; pump.add(plinth);
+    // holding-down bolts
+    const hd = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.011, 0.011, 0.05, 6), this.steel, 4);
+    [[-0.16, -0.14], [0.16, -0.14], [-0.16, 0.14], [0.16, 0.14]]
+      .forEach(([bx, bz], i) => { m.compose(new V3(1.24 + bx, 0.13, -1.05 + bz), q.identity(), new V3(1, 1, 1)); hd.setMatrixAt(i, m); });
+    hd.instanceMatrix.needsUpdate = true; this.group.add(hd);
+    // volute casing, lying on its axis the way a real pump does
+    const casing = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.17, 14), this.equip);
+    casing.rotation.x = Math.PI / 2; casing.position.set(0, 0.24, -0.06);
+    casing.castShadow = casing.receiveShadow = true; pump.add(casing);
+    // electric motor: ribbed barrel + terminal box, coupled to the casing
+    const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.105, 0.105, 0.30, 14), this.equip);
+    motor.rotation.x = Math.PI / 2; motor.position.set(0, 0.24, 0.20);
+    motor.castShadow = motor.receiveShadow = true; pump.add(motor);
+    const fins = new THREE.InstancedMesh(new THREE.TorusGeometry(0.107, 0.007, 4, 14), this.equip, 7);
+    for (let i = 0; i < 7; i++) { m.compose(new V3(1.24, 0.24, -1.05 + 0.08 + i * 0.04), q.identity(), new V3(1, 1, 1)); fins.setMatrixAt(i, m); }
+    fins.instanceMatrix.needsUpdate = true; this.group.add(fins);
+    const term = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.07, 0.13), this.equip);
+    term.position.set(0, 0.35, 0.20); term.castShadow = true; pump.add(term);
+    const coupling = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.07, 10), this.steel);
+    coupling.rotation.x = Math.PI / 2; coupling.position.set(0, 0.24, 0.035); pump.add(coupling);
+    // suction: down through the slab
+    const suction = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.052, 0.20, 10), this.rust);
+    suction.position.set(0, 0.10, -0.145); pump.add(suction);
+    const sBend = new THREE.Mesh(new THREE.TorusGeometry(0.055, 0.052, 8, 10, Math.PI / 2), this.rust);
+    sBend.rotation.set(0, Math.PI / 2, Math.PI / 2); sBend.position.set(0, 0.20, -0.145); pump.add(sBend);
+    // discharge: up the wall, through the valve, then an elbow INTO the wall
+    const riser = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.052, 1.62, 10), this.rust);
+    riser.position.set(0, 1.14, -0.06); riser.castShadow = true; pump.add(riser);
+    const elbow = new THREE.Mesh(new THREE.TorusGeometry(0.075, 0.052, 8, 12, Math.PI / 2), this.rust);
+    elbow.rotation.set(0, 0, 0); elbow.position.set(0.075, 1.95, -0.06); elbow.castShadow = true; pump.add(elbow);
+    const stub = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.052, 0.20, 10), this.rust);
+    stub.rotation.z = Math.PI / 2; stub.position.set(0.175, 2.025, -0.06); pump.add(stub);
+    // the isolating valve the wheel actually belongs to
+    const vBody = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.13, 12), this.equip);
+    vBody.position.set(0, 0.92, -0.06); vBody.castShadow = true; pump.add(vBody);
+    for (const fy of [0.855, 0.985]) {
+      const fl2 = new THREE.Mesh(new THREE.CylinderGeometry(0.082, 0.082, 0.022, 12), this.metal);
+      fl2.position.set(0, fy, -0.06); pump.add(fl2);
     }
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.14, 8), this.steel);
+    stem.rotation.z = Math.PI / 2; stem.position.set(-0.10, 0.92, -0.06); pump.add(stem);
+    const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.105, 0.015, 6, 16), this.metal);
+    wheel.position.set(-0.17, 0.92, -0.06); wheel.rotation.y = Math.PI / 2;
+    wheel.castShadow = true; pump.add(wheel);
+    for (let i = 0; i < 3; i++) {
+      const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.013, 0.20, 0.013), this.metal);
+      spoke.position.set(-0.17, 0.92, -0.06); spoke.rotation.x = i * 1.047;
+      spoke.castShadow = true; pump.add(spoke);
+    }
+    // pressure gauge on the discharge, above the valve
+    const gTap = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.07, 6), this.steel);
+    gTap.rotation.z = Math.PI / 2; gTap.position.set(-0.085, 1.22, -0.06); pump.add(gTap);
+    const gBody = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.022, 14), this.metal);
+    gBody.rotation.z = Math.PI / 2; gBody.position.set(-0.13, 1.22, -0.06); gBody.castShadow = true; pump.add(gBody);
+    const gFace = new THREE.Mesh(new THREE.CircleGeometry(0.036, 16),
+      new THREE.MeshStandardMaterial({ color: 0x6f6d66, roughness: 0.72 }));
+    gFace.rotation.y = -Math.PI / 2; gFace.position.set(-0.142, 1.22, -0.06); pump.add(gFace);
+    // A machine with no name is a prop. This one has a rating plate, which is
+    // what makes the valve, the gauge and the pipework read as one device.
+    const nameplate = paintedPlate(0.17, 0.075, (c, W, H) => {
+      c.fillStyle = '#20242a'; c.fillRect(0, 0, W, H);
+      c.strokeStyle = '#7d8274'; c.lineWidth = 4; c.strokeRect(4, 4, W - 8, H - 8);
+      c.fillStyle = '#c6cbb8'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.font = Math.round(H * 0.46) + 'px ' + CONFIG.fonts.stencil;
+      c.fillText('BOMBA B-2', W / 2, H / 2);
+    }, { px: 256 });
+    nameplate.rotation.y = -Math.PI / 2;
+    nameplate.position.set(1.24 - 0.108, 0.30, -1.05); this.group.add(nameplate);
+
+    // ---- what this wall IS -------------------------------------------------
+    // The right wall carried a window, a pump and a switchboard with nothing to
+    // tie them together. One plate high up names the space on the other side of
+    // the glass, and then all three objects belong to the same story: the hall
+    // is through there, the pump serves it, the board feeds it.
+    const zone = paintedPlate(0.66, 0.20, (c, W, H) => {
+      c.fillStyle = '#1b1f22'; c.fillRect(0, 0, W, H);
+      c.strokeStyle = '#c2c8b6'; c.lineWidth = 5; c.strokeRect(8, 8, W - 16, H - 16);
+      c.fillStyle = '#d4dac6'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.font = Math.round(H * 0.40) + 'px ' + CONFIG.fonts.stencil;
+      c.fillText('SALA DE MAQUINAS', W / 2, H * 0.40);
+      // an arrow pointing down at the opening it refers to
+      c.fillStyle = '#c2c8b6';
+      c.beginPath(); c.moveTo(W / 2, H * 0.88); c.lineTo(W / 2 - H * 0.16, H * 0.64);
+      c.lineTo(W / 2 + H * 0.16, H * 0.64); c.closePath(); c.fill();
+    }, { px: 512 });
+    zone.rotation.y = -Math.PI / 2;
+    zone.position.set(w - 0.025, 2.06, this.openings.window.z); this.group.add(zone);
 
     // hazard stripe on the floor at the corridor threshold (scale + reading)
     const stripe = new THREE.Mesh(new THREE.PlaneGeometry(1.34, 0.13), new THREE.MeshBasicMaterial({ color: 0x2b2410, toneMapped: false }));
@@ -560,8 +1115,17 @@ export class Room {
     const fluo = new THREE.PointLight(0xbcd0ea, 0, 9, 2); fluo.position.set(0, h - 0.12, 0.4); this.group.add(fluo);
 
     const dome = new THREE.Mesh(new THREE.SphereGeometry(0.06, 10, 10, 0, Math.PI * 2, 0, Math.PI / 2), new THREE.MeshBasicMaterial({ color: 0x661414, toneMapped: false }));
-    dome.position.set(CONFIG.room.W / 2 - 0.02, 2.15, 1.2); dome.rotation.z = Math.PI / 2; this.group.add(dome);
-    const emg = new THREE.PointLight(0x8a221a, 3.4, 6.5, 2); emg.position.set(CONFIG.room.W / 2 - 0.2, 2.1, 1.2); this.group.add(emg);
+    dome.position.set(CONFIG.room.W / 2 - 0.06, 2.15, 1.2); dome.rotation.z = Math.PI / 2; this.group.add(dome);
+    // The emitter sat 0.18 m away from its own dome and 0.05 m lower, so the red
+    // wash on the right wall demonstrably came from somewhere the beacon wasn't.
+    // It now sits INSIDE the shell it belongs to, which is the whole point of a
+    // luminaire: the light and the fitting have to agree.
+    const emg = new THREE.PointLight(0x8a221a, 3.4, 6.5, 2);
+    emg.position.copy(dome.position); this.group.add(emg);
+    // a back plate, so the fitting is mounted to something
+    const emgBack = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.025, 12), this.metal);
+    emgBack.rotation.z = Math.PI / 2; emgBack.position.set(CONFIG.room.W / 2 - 0.022, 2.15, 1.2);
+    emgBack.castShadow = true; this.group.add(emgBack);
     // A fire-alarm beacon whose driver has failed: it keeps trying to strobe,
     // never quite manages it, and drifts between red and a sickly orange.
     const cage = new THREE.Mesh(new THREE.TorusGeometry(0.075, 0.008, 5, 10), this.steel);
@@ -639,14 +1203,17 @@ export class Room {
       // 0 -> shut, 1 -> wide. Hinge groan wobble while it travels.
       this.doorPivot.rotation.y = -a.anim * 1.05 + Math.sin(t * 46) * 0.012 * shudder;
     } else if (a.kind === 'vent' && this.ventCover) {
-      this.ventCover.rotation.x = -a.anim * 1.5 + Math.sin(t * 74) * 0.06 * shudder;
+      // top-hinged: the louvre lifts up and OUT, so the mouth ends up unobstructed
+      this.ventCover.rotation.x = -a.anim * 1.72 + Math.sin(t * 74) * 0.06 * shudder;
       this.ventCover.position.x = Math.sin(t * 91) * 0.007 * shudder;
     } else if (a.kind === 'hatch' && this.hatchLid) {
+      // hinged on the far edge and thrown back past vertical: at full travel the
+      // grating rests on the slab BEYOND the pit, leaving the whole aperture
+      // clear. It used to lean across the opening the creature climbs through.
       const bump = shudder * Math.max(0, Math.sin(t * 15)) * 0.05;
-      this.hatchLid.position.y = 0.02 + bump;
-      this.hatchLid.rotation.x = -a.anim * 0.9;
-      this.hatchLid.position.z = -0.4 + a.anim * 0.34;
-      this.hatchLid.rotation.z = bump * 0.8;
+      this.hatchLid.position.y = 0.035 + bump;
+      this.hatchLid.rotation.x = a.anim * 1.95;
+      this.hatchLid.rotation.z = bump * 0.6;
     }
   }
 

@@ -103,7 +103,9 @@ function start() {
   let fluoT = 0, fluoLevel = 0;
   function flicker(dt) {
     // the jumpscare drives the lights itself
-    if (room.alarmOverride) { room.lights.fluo.intensity = 9; return; }
+    // The scare owns the lighting: the tube comes fully on so the room reads
+    // behind the face instead of the frame being 75% pure black.
+    if (room.alarmOverride) { room.lights.fluo.intensity = 20; return; }
     fluoT -= dt;
     if (fluoT <= 0) {
       if (Math.random() < 0.5) { fluoLevel = 18 + Math.random() * 24; fluoT = 0.03 + Math.random() * 0.1; }

@@ -15,6 +15,17 @@ import { damp, clamp, mulberry32 } from '../core/util.js';
 
 export const GState = { MENU: 'menu', PLAYING: 'playing', SCARE: 'scare', END: 'end' };
 
+// ---- Jumpscare staging ------------------------------------------------------
+// Kept together because they are one calibration, not three settings: the range,
+// the size and the lamp trade off against each other. Irradiance from a decaying
+// point light goes as 1/d**2, so halving the distance to the face means the lamp
+// has to come down by 4x or the skin clips to pure white.
+const SCARE_Z = 0.46;      // metres from the eye to the head
+const SCARE_S = 1.5;       // creature scale while it screams
+const EYE_CLEAR = 0.14;    // keep the eye this far outside the body, in metres
+const SCARE_LAMP = 6.0;    // flash intensity, tuned by measurement (see below)
+
+
 export class Game {
   constructor({ scene, room, flashlight, eye, bus, audio, crt, onPointerLock, onPointerUnlock }) {
     Object.assign(this, { scene, room, flashlight, eye, bus, audio, crt, onPointerLock, onPointerUnlock });
@@ -85,7 +96,8 @@ export class Game {
   update(dt) {
     // The building keeps breathing in every state, menus included.
     this.audio.updateAmbience(dt);
-    this.scareFX = damp(this.scareFX, this.state === GState.SCARE ? 1 : 0, 6, dt);
+    // held at 1 from the impact frame (set in _onScare); only the decay is damped
+    if (this.state !== GState.SCARE) this.scareFX = damp(this.scareFX, 0, 6, dt);
     this.shake = damp(this.shake, 0, 3.2, dt);
 
     if (this.state === GState.MENU || this.state === GState.END) {
@@ -200,22 +212,61 @@ export class Game {
     // the FNAF framing: a face filling the view, not a body in the dark.
     const e = scared.enemy;
     if (e && e.group) {
-      e.group.scale.setScalar(1.4);
-      e.group.position.set(this.eye.x, 0, this.eye.z - 1.15);
+      // IN YOUR FACE. At 1.15 m and 1.4x the head filled about 40% of the front
+      // panel, which reads as "a monster over there". At SCARE_Z with SCARE_S it
+      // subtends ~52 deg across and ~66 deg up, so on the cube the head covers
+      // most of the wall you are looking at and there is nowhere else to look.
+      e.group.scale.setScalar(SCARE_S);
+      e.group.position.set(this.eye.x, 0, this.eye.z - SCARE_Z);
       e.group.lookAt(this.eye.x, e.group.position.y, this.eye.z + 1);
       e.group.updateMatrixWorld(true);
-      // measure where its head actually ended up and lift it to eye height —
-      // works for any rig, procedural or GLB, whatever its proportions
+      // Measure where its head actually ended up and put THAT at eye height and
+      // at SCARE_Z — not the group origin. The skull sits behind the root, and
+      // at 2x scale that offset doubles: positioning by the origin left the face
+      // 0.71 m away instead of 0.46, which is 24 deg of framing thrown away.
+      // Measuring works for any rig, procedural or GLB, whatever its proportions.
       const hw = e.headWorld;
       e.group.position.y += (this.eye.y - hw.y);
+      e.group.position.z += (this.eye.z - SCARE_Z) - hw.z;
       e.group.updateMatrixWorld(true);
+
+      // ---- AS CLOSE AS IT CAN GET WITHOUT SWALLOWING THE CAMERA ------------
+      // Pushed to SCARE_Z blind, the creature's own arms and chest closed AROUND
+      // the eye point: the front panel then shows the unlit inside of the mesh,
+      // i.e. pure black, which is the opposite of a scare. So we solve for the
+      // nearest head position at which the eye is still OUTSIDE the body, with a
+      // margin. Measured rather than assumed, so it holds for any model dropped
+      // in later, whatever its proportions or pose.
+      let headZ = this.eye.z - SCARE_Z;
+      for (let i = 0; i < 16; i++) {
+        const box = new THREE.Box3().setFromObject(e.group).expandByScalar(EYE_CLEAR);
+        if (!box.containsPoint(this.eye)) break;
+        headZ -= 0.05;
+        e.group.position.z -= 0.05;
+        e.group.updateMatrixWorld(true);
+      }
+      this._scareHeadZ = headZ;                // the framing the tick locks onto
+      this._scareZ0 = e.group.position.z;
+      // FORCE IT SOLID. The body carries a spawn fade, and while that fade is
+      // running the materials sit at opacity 0 with body.visible false. A scare
+      // that fires in that window shows an empty room and a scream. Whatever
+      // state the appearance staging was in, the thing that lunges is opaque.
+      e.phase = 'live';
+      if (e._setOpacity) e._setOpacity(1);
+      if (e.body) e.body.visible = true;
       e._scarePose = true;
       if (e._playIntent) e._playIntent('scream', true);
-      // light aimed at the face from just in front of the player
-      this.scareLight.position.set(this.eye.x, this.eye.y + 0.14, this.eye.z - 0.38);
-      this.scareLight.intensity = 6.5;
+      // Lit from just ABOVE AND BEHIND the player, like a flashgun, not from a
+      // lamp wedged between the player and the face. At this range a light in
+      // the gap is 25 cm from the skin and clips it to white however low you
+      // set it; from behind the head it is ~0.8 m away and stays controllable.
+      this.scareLight.position.set(this.eye.x, this.eye.y + 0.34, this.eye.z + 0.18);
+      this.scareLight.intensity = SCARE_LAMP;
       this._scareEnemy = e;
     }
+    // ONE IMPACT: the post-process hit lands on the same frame as the scream's
+    // attack instead of ramping in over half a second behind it.
+    this.scareFX = 1;
     this._scareT = 0;
   }
 
@@ -236,29 +287,52 @@ export class Game {
       e.animate(dt);
       // Keep the head locked at eye level and centred; only jitter around it, so
       // the face never drifts off the front screen.
+      // ---- KEEP THE FACE PINNED, on all three axes -----------------------
+      // The scream animation swings the head bone ~0.28 m back and 0.09 m across;
+      // at 2x scale that threw the face out of frame within a single tick, which
+      // is why it kept reading as a body somewhere in the room. So we steer
+      // by the MEASURED head, not by the group origin — the same trick as the
+      // height lock, applied to x and z as well. Works for any animation.
+      const press = (t < sustainEnd ? 0.10 * Math.min(1, t / sustainEnd) : 0.10);
+      const tx = this.eye.x + Math.sin(t * 53) * 0.010;
+      const ty = this.eye.y;
+      const tz = (this._scareHeadZ ?? (this.eye.z - SCARE_Z)) + press + Math.sin(t * 37) * 0.014;
       const hw = e.headWorld;
-      e.group.position.y += (this.eye.y - hw.y) * Math.min(1, dt * 12);
-      e.group.position.x = this.eye.x + Math.sin(t * 53) * 0.012;
-      e.group.position.z = (this.eye.z - 1.15) + Math.sin(t * 37) * 0.02
-        + (t < sustainEnd ? 0.16 * Math.min(1, t / sustainEnd) : 0.16);   // presses in
+      const k = Math.min(1, dt * 22);
+      e.group.position.x += (tx - hw.x) * k;
+      e.group.position.y += (ty - hw.y) * k;
+      e.group.position.z += (tz - hw.z) * k;
       e.group.rotation.z = Math.sin(t * 61) * 0.05 * (t < sustainEnd ? 1 : 0.2);
-      // strobe the beam so the face is lit in stutters, never cleanly
-      // Stutter, don't sear: the face is lit in bursts but never clips to white.
-      // The torch drops right out: the scare is lit by its own lamp and the
-      // alarm, exactly like a FNAF cut. Keeps the face readable, never white.
-      this.flashlight.spot.intensity = (this._flSaved || 46) * 0.18;
+
+      // The clearance has to be re-tested EVERY FRAME, not once when staging.
+      // Solved on the neutral pose it looked fine, and then the scream animation
+      // threw the arms forward and closed them around the eye point — at which
+      // moment the front panel shows the unlit inside of the mesh and the scare
+      // is a black screen with a noise on it. So: if the eye ends up enclosed,
+      // give ground until it isn't. It settles in two or three frames and never
+      // creeps back in, because the target only ever moves away.
+      e.group.updateMatrixWorld(true);
+      const bb = this._scareBox || (this._scareBox = new THREE.Box3());
+      bb.setFromObject(e.group).expandByScalar(EYE_CLEAR);
+      if (bb.containsPoint(this.eye)) this._scareHeadZ -= 0.05;
+      // The torch is cut entirely: at this range even a tenth of it is a
+      // point-blank floodlight on skin. The scare is lit by its own flash and
+      // the fire alarm, which is what keeps the face readable instead of white.
+      this.flashlight.spot.intensity = 0;
       this.scareLight.intensity = t < sustainEnd
-        ? 6.5 * (Math.random() < 0.85 ? 1 : 0.35)
-        : Math.max(0, 6.5 * (1 - (t - sustainEnd) / 0.5));
+        ? SCARE_LAMP * (Math.random() < 0.85 ? 1 : 0.35)
+        : Math.max(0, SCARE_LAMP * (1 - (t - sustainEnd) / 0.5));
     }
     if (this._scareT > 2.25) {
       const left = this.pickups.remaining;      // read BEFORE clearing the field
+      // Restore the creature BEFORE dropping the reference. This ran after the
+      // null assignment, so the scare scale was in fact never undone.
+      if (e && e.group) { e.group.scale.setScalar(1); e._scarePose = false; }
       this.manager.stop(); this.pickups.clear();
       this._scareEnemy = null;
       this.flash = 0;
       this.room.alarmOverride = false;
       this.scareLight.intensity = 0;
-      if (this._scareEnemy && this._scareEnemy.group) this._scareEnemy.group.scale.setScalar(1);
       if (this._flSaved) this.flashlight.spot.intensity = this._flSaved;
       this._lastWin = false;
       this.state = GState.END;
