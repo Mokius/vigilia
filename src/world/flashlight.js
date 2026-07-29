@@ -163,6 +163,13 @@ export class Flashlight {
   recharge(amt) { this.battery = clamp(this.battery + amt, 0, 100); }
 
   /**
+   * Force the lamp to stutter for a moment, independently of charge.
+   * Used as cover: a creature leaving asks for this so its removal happens
+   * behind a genuine loss of light rather than behind a fade.
+   */
+  stutter(seconds) { this._stutterT = Math.max(this._stutterT || 0, seconds); }
+
+  /**
    * Angle (radians) between the beam axis and a world point. The lit cone is
    * deliberately wide (~23°), which is far too coarse to pick between small
    * controls sitting side by side — so precise targeting uses this instead.
@@ -212,7 +219,10 @@ export class Flashlight {
       this.battery = clamp(this.battery - cfg.battery.drainPerSec * dt, 0, 100);
     }
     let flick = 1;
-    if (this.battery <= 0) { flick = 0; }
+    if (this._stutterT > 0) {
+      this._stutterT -= dt;
+      flick = Math.random() < 0.55 ? 0.06 + Math.random() * 0.12 : 0.85;
+    } else if (this.battery <= 0) { flick = 0; }
     else if (this.battery < cfg.battery.flickerBelow) {
       flick = Math.random() < 0.08 ? 0.15 + Math.random() * 0.3 : 1;
     }

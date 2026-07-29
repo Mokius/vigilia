@@ -184,12 +184,14 @@ export const CLIP_PLAN = {
   scream:    { clip: 'zombie_scream',    rate: 1.00, loop: false },
   // the strike that happens if the player never answers
   attack:    { clip: 'zombie_attack',    rate: 1.05, loop: false },
-  // THE SCREAMER: `neck bite` is the lunge-at-the-camera take. Trimmed to the
-  // 2 s where it actually arrives, so it lands with the scream instead of
-  // spending its first half second winding up.
-  jumpscare: { clip: 'zombie_neck_bite', rate: 1.15, loop: false, range: [0.55, 2.55] },
-  // an alternative bite, so the two characters do not scare identically
-  jumpscareB:{ clip: 'zombie_biting_2',  rate: 1.10, loop: false, range: [0.20, 2.20] },
+  // THE SCREAMER. Simple and violent beats elaborate: `neck bite` and `biting_2`
+  // both throw the arms forward, and at the range this is staged at that put the
+  // player INSIDE the creature's own limbs — the clearance solver then had to
+  // push it back to 0.8 m and the whole point of the shot was lost. These two
+  // takes keep the movement in the head and torso, so the face can stay right up
+  // against the camera where it belongs.
+  jumpscare: { clip: 'zombie_scream', rate: 1.20, loop: false, range: [0.25, 1.85] },
+  jumpscareB:{ clip: 'zombie_attack', rate: 1.15, loop: false, range: [0.55, 2.10] },
   // DRIVEN OFF BY THE LIGHT: no retreat take exists, so the walk runs backwards.
   retreat:   { clip: 'zombie_walk',      rate: -1.55, loop: true },
   // and when the beam finally breaks it, it goes down

@@ -270,6 +270,18 @@ export class PickupField {
       }
     }
 
+    // ---- FAIRNESS FLOOR ----------------------------------------------------
+    // Independent timers are the right model, but they can all happen to be
+    // running at once, and then the room has no power on offer at all through no
+    // fault of the player. If nothing is available, the soonest cell is pulled
+    // forward so there is always one either out or a couple of seconds away.
+    // Tension, never a dead end.
+    if (this.remaining === 0) {
+      let soonest = null;
+      for (const b of this.items) if (!soonest || b.respawnT < soonest.respawnT) soonest = b;
+      if (soonest) soonest.respawnT = Math.min(soonest.respawnT, D.floorDelay);
+    }
+
     // park the arc on the active cell
     if (best && best.dwell > 0.01) {
       const f = best.dwell / D.dwell;

@@ -53,15 +53,21 @@ export const CONFIG = {
 
   // Battery pickups: physical objects, aim to collect, finite.
   pickups: {
-    // At most TWO cells exist at any moment: enough to offer a choice, few enough
-    // that the room still feels short of power. Each runs its own respawn clock.
-    live: 2,
+    // THREE cells live at once. Two plus a 26-48 s respawn meant a player who
+    // took one could go three quarters of a minute with nothing on the board,
+    // which is where "I only found one battery all night" came from. Three, with
+    // a much shorter clock and a floor guarantee in PickupField, keeps the room
+    // short of power without ever leaving it unsolvable.
+    live: 3,
     dwell: 1.4,                // seconds of continuous aim to collect
     amount: 28,                // % restored (never a full charge)
     litThreshold: 0.35,
     maxAngle: 0.20,            // must be near the beam axis, not just in the cone
     // Each collected cell comes back on its own clock, staggered.
-    respawn: [26, 48],
+    respawn: [11, 21],
+    // Never leave the player with nothing: if the board is empty, the next cell
+    // arrives within this many seconds regardless of its own clock.
+    floorDelay: 2.5,
     // Only ONE cell can ever be charging: the one closest to the beam axis.
     exclusive: true,
   },

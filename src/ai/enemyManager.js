@@ -81,6 +81,11 @@ export class EnemyManager {
       holdMax: type.holdMax * this.params.holdMul,
     });
     const e = new Enemy(scaled, routeName, this.scene, this.eye, mulberry32((this.rng() * 1e9) >>> 0), this.room);
+    // Per-night scaling that the creature applies itself: how fast it CROSSES
+    // (never how fast its legs move) and how long the beam has to be held.
+    e.dashMul = this.params.dashMul;
+    e.banishMul = this.params.banishMul;
+    e.aggression = this.params.aggression;
     this.enemies.push(e);
     this.bus.emit('spawn', { name: type.name, pan: ROUTES[routeName].pan, route: routeName });
   }

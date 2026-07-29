@@ -44,6 +44,12 @@ const TIER_FAR = 1, TIER_MID = 2, TIER_CLOSE = 3;
 const LIGHT_REACT = 0.10;
 const LIGHT_MIN = 0.28;       // beam coverage that counts as "being lit"
 
+// Retreating: how long it stops and looks at you between each backward step.
+const RETREAT_PAUSE = 0.34;
+// How long the room's cover (torch stutter + a frame of interference) lasts. The
+// body is destroyed inside this window.
+const VANISH_COVER = 0.42;
+
 const HEAD_BONE_RE = /(mixamorig\d*)?:?head$/i;
 
 // scratch, so the per-frame head aim allocates nothing
@@ -193,16 +199,41 @@ export class Enemy {
    * it is far, a walk when it is closing, a run when it is on top of you.
    */
   _intentNow(moving) {
-    const crawling = CRAWL_STAGES.has(this.stage);
     const t = this.tier;
+    const st = this.stage;
+    // EVERY WAY IN HAS ITS OWN BODY LANGUAGE. A door and a corridor are walked
+    // through; a window is climbed over and only then stood up from; a duct and
+    // a pit are crawled out of. Driving this off the waypoint's own stage means
+    // a route describes its entry once and the animation follows.
+    if (st === 'climb') return moving ? 'climb' : 'peek';
+    if (st === 'emerge') return moving ? 'crawl' : 'emerge';
+    const crawling = CRAWL_STAGES.has(st);
     if (moving) {
       if (crawling) return t >= TIER_MID ? 'crawlFast' : 'crawl';
       return t >= TIER_CLOSE ? 'run' : 'walk';
     }
-    if (this.stage === 'emerge') return 'emerge';
     if (t === TIER_FAR) return crawling ? 'far' : 'peek';
     if (crawling) return 'crawl';
     return 'idle';
+  }
+
+  /**
+   * Pitch and roll for the body at this waypoint.
+   *
+   * The crawl take moves along the floor, so using it to come up out of the pit
+   * showed someone crawling horizontally across the top of a ladder. Tipping the
+   * body back while it is still below floor level turns the same take into a
+   * climb: the limbs pull the same way, but now they are pulling upwards.
+   */
+  _postureFor(s) {
+    let pitch = 0;
+    if (this.route.access === 'hatch' && s.y < -0.02) {
+      // fully vertical down in the shaft, easing to flat as it clears the lip
+      pitch = clamp(-s.y / 0.55, 0, 1) * -1.28;
+    } else if (this.stage === 'climb') {
+      pitch = -0.42;              // pitched forward over the sill
+    }
+    return pitch;
   }
 
   /**
@@ -216,10 +247,14 @@ export class Enemy {
     const rising = this._tier !== undefined && t > this._tier;
     this._tier = t;
     if (!rising || this.harmless) return;
+    // SOUND announces the tier, not a new animation. Firing the scream take here
+    // meant walk -> scream -> walk within a second or two every time it closed
+    // in, which read as a creature having a fit rather than a creature arriving.
+    // The special takes are now reserved for three moments only: appearing, the
+    // beat before the attack, and the screamer itself.
     if (t === TIER_MID) {
       ev.push({ type: 'cue', payload: { sound: 'knock', pan: this.pan, muffle: 0.2 } });
     } else if (t === TIER_CLOSE) {
-      this._playIntent('scream', true);
       ev.push({ type: 'cue', payload: { sound: 'whisper', pan: this.pan, muffle: 0 } });
     }
   }
@@ -264,6 +299,7 @@ export class Enemy {
     const s = samplePath(this.route, this.p);
     this.group.position.set(s.x, s.y, s.z);
     this.stage = s.stage;
+    this._pitchWant = this._postureFor(s);
     if (this.route.cross) {
       // faces the direction of travel
       const a = samplePath(this.route, Math.min(1, this.p + 0.02));
@@ -303,9 +339,15 @@ export class Enemy {
     if (to === this.station) { this.holdT = this._rollHold(); return; }
     this.fromStation = this.station; this.toStation = to;
     this.dashT = 0; this.dashing = true; this._windup = 0;
-    this.dashDur = randRange(this.rng, this.type.dashMin, this.type.dashMax);
-    // aggressive, fast animation for the blur of movement
-    this._clipRate = 3.4;
+    this.dashDur = randRange(this.rng, this.type.dashMin, this.type.dashMax) * (this.dashMul || 1);
+    // ---- THE CLIP RUNS AT HUMAN SPEED ------------------------------------
+    // This used to set 3.4, which played the walk and crawl takes at more than
+    // three times speed for the whole crossing: the creature covered ground
+    // convincingly and then looked like a video on fast-forward doing it. The
+    // two things are now separate concerns — `dashDur` decides how fast it
+    // TRAVELS, this decides how fast it MOVES ITS LIMBS, and the second one
+    // stays within touching distance of 1.
+    this._clipRate = 1.15;
     // Backing away has to KEEP the reverse cycle. This was calling _intentNow()
     // unconditionally, which handed the forward walk straight back and wiped the
     // retreat the caller had just started — so nothing ever visibly reversed.
@@ -397,14 +439,20 @@ export class Enemy {
             return ev;
           }
           if (this.state === EState.RETREAT && this.station <= 0) {
-            this.state = EState.HIDE; this._hideT = 0.45;
+            // Reached its way in. Ask the room for cover FIRST — the lamp
+            // stutters and the image tears — and go inside that window. This is
+            // the path a normal retreat actually takes, so the request has to be
+            // here and not only in the no-room-left branch below.
+            this.state = EState.HIDE; this._hideT = VANISH_COVER;
+            this._vanishing = true;
+            ev.push({ type: 'vanish', payload: { pan: this.pan } });
             // It leaves the way it came in and pulls the access back with it.
             // A door already forced fully open stays open — room.closeStep()
             // is the one that decides, so persistence is respected.
             if (this.route.access) ev.push({ type: 'access', payload: { name: this.route.access, opening: false } });
           }
           if (this.state === EState.CROSS && this.station >= last) { this.state = EState.DONE; }
-          ev.push({ type: 'step', payload: { pan: this.pan, p: this.p } });
+          ev.push({ type: 'step', payload: { pan: this.pan, p: this.p, route: this.routeName, station: this.station, back: this.state === EState.RETREAT } });
         }
         this._cues(dt, ev);
         return ev;
@@ -414,7 +462,12 @@ export class Enemy {
       // back to dash to, so leave now. Without this the creature sat in RETREAT
       // for ever and its route stayed blocked for the rest of the night.
       if (this.state === EState.RETREAT && this.station <= 0) {
-        this.state = EState.HIDE; this._hideT = 0.45;
+        // Back where it came from. Ask for cover BEFORE going: the game answers
+        // with a flashlight stutter and a frame of interference, and the body is
+        // removed inside that window, so the player never sees it wink out.
+        this.state = EState.HIDE; this._hideT = VANISH_COVER;
+        this._vanishing = true;
+        ev.push({ type: 'vanish', payload: { pan: this.pan } });
         if (this.route.access) ev.push({ type: 'access', payload: { name: this.route.access, opening: false } });
         this._cues(dt, ev);
         return ev;
@@ -436,7 +489,8 @@ export class Enemy {
       // felt inert. Now a tenth of a second of steady light turns it around and
       // it starts backing off the same instant — and if you hold the beam it
       // keeps stepping back, one position at a time, until it is gone.
-      if (this.state === EState.APPROACH && canBeRepelled && this.litT >= LIGHT_REACT) {
+      const react = LIGHT_REACT * (this.banishMul || 1);
+      if (this.state === EState.APPROACH && canBeRepelled && this.litT >= react) {
         this.state = EState.RETREAT;
         this._playIntent('retreat', true);
         ev.push({ type: 'banish', payload: { pan: this.pan, name: this.type.name } });
@@ -444,9 +498,11 @@ export class Enemy {
         this._cues(dt, ev);
         return ev;
       }
-      // Take the beam off it and it recovers its nerve — but not instantly.
+      // RETREATING IS A PERFORMANCE, NOT A DELETION. It gives ground one
+      // position at a time with a real pause between each — long enough to read
+      // as "it stopped to look at me again" rather than a slide to the exit.
       if (this.state === EState.RETREAT) {
-        if (beamOn) { this.holdT = Math.min(this.holdT, 0.16); this._offBeamT = 0; }
+        if (beamOn) { this.holdT = Math.min(this.holdT, RETREAT_PAUSE); this._offBeamT = 0; }
         else {
           this._offBeamT = (this._offBeamT || 0) + dt;
           if (this._offBeamT > 0.9 && this.station > 0) { this.state = EState.APPROACH; this._offBeamT = 0; }
@@ -482,10 +538,17 @@ export class Enemy {
     }
 
     if (this.state === EState.HIDE) {
-      // dissolve away over the last half second instead of blinking out
       this._hideT -= dt;
-      this._setOpacity(clamp(this._hideT / 0.45, 0, 1));
-      if (this._hideT <= 0) this.state = EState.DONE;
+      if (this._vanishing) {
+        // It stays SOLID and simply stops existing part-way through the cover the
+        // room is providing. A visible dissolve is the thing that read as a game
+        // deleting an object; under a torch stutter and a frame of interference
+        // the player only registers that the dark took it.
+        if (this._hideT <= VANISH_COVER * 0.45) this.state = EState.DONE;
+      } else {
+        this._setOpacity(clamp(this._hideT / 0.45, 0, 1));
+        if (this._hideT <= 0) this.state = EState.DONE;
+      }
     }
 
     this._cues(dt, ev);
@@ -517,6 +580,12 @@ export class Enemy {
                  : 0.45;
       this._headAimW = (this._headAimW || 0) + (want - (this._headAimW || 0)) * Math.min(1, dt * 5);
       this._aimHead(this._headAimW * this.opacity);
+      // ACCESS POSTURE. Eased rather than snapped, so coming up the shaft is one
+      // continuous movement from vertical to flat instead of a rotation popping
+      // the instant the waypoint changes.
+      const pw = this._pitchWant || 0;
+      this._pitch = (this._pitch || 0) + (pw - (this._pitch || 0)) * Math.min(1, dt * 4.5);
+      if (this.body) this.body.rotation.x = this._pitch;
     } else if (this.body && this.body.userData.proc) {
       // idle life for the procedural fallback
       // Procedural fallback: almost frozen while holding (only breath), then a

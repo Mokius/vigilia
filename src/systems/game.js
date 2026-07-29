@@ -20,9 +20,9 @@ export const GState = { MENU: 'menu', PLAYING: 'playing', SCARE: 'scare', END: '
 // the size and the lamp trade off against each other. Irradiance from a decaying
 // point light goes as 1/d**2, so halving the distance to the face means the lamp
 // has to come down by 4x or the skin clips to pure white.
-const SCARE_Z = 0.46;      // metres from the eye to the head
+const SCARE_Z = 0.34;      // metres from the eye to the head
 const SCARE_S = 1.5;       // creature scale while it screams
-const EYE_CLEAR = 0.14;    // keep the eye this far outside the body, in metres
+const EYE_CLEAR = 0.09;    // keep the eye this far outside the body, in metres
 const SCARE_LAMP = 6.0;    // flash intensity, tuned by measurement (see below)
 
 
@@ -60,8 +60,22 @@ export class Game {
       else a.knock(pan, 0.6);
     });
     this.bus.on('banish', ({ pan }) => { a.scrape(pan, 0.25); a.boom(pan); });
+    // COVER FOR THE VANISH. The creature asks for this the moment it reaches the
+    // place it came in by; the lamp stutters, the image tears for a few frames,
+    // and the body is destroyed inside that window. Nobody sees it go.
+    this.bus.on('vanish', ({ pan }) => {
+      this._glitchT = 0.42;
+      this.flashlight.stutter(0.34);
+      a.scrape(pan, 0.5);
+    });
     // every snap between stations lands with a hard impact
-    this.bus.on('step', ({ pan, p }) => a.lunge(pan, p));
+    this.bus.on('step', ({ pan, p, route, station, back }) => {
+      a.lunge(pan, p);
+      // The window has no mechanism to step, so its identity is emitted here:
+      // every position it gains over the frame sounds like glass and steel
+      // taking weight, and going back sounds like it coming off again.
+      if (route === 'window') a.accessSound('window', (station || 0) + 1, pan, !!back);
+    });
   }
 
   init() { this.crt.showMenu(); this.state = GState.MENU; }
@@ -102,6 +116,13 @@ export class Game {
     // held at 1 from the impact frame (set in _onScare); only the decay is damped
     if (this.state !== GState.SCARE) this.scareFX = damp(this.scareFX, 0, 6, dt);
     this.shake = damp(this.shake, 0, 3.2, dt);
+    if (this._glitchT > 0) {
+      this._glitchT -= dt;
+      const k = clamp(this._glitchT / 0.42, 0, 1);
+      // short, ugly and asymmetric: interference, not a fade
+      this.scareFX = Math.max(this.scareFX, 0.55 * k);
+      this.flash = Math.max(this.flash, (Math.random() < 0.35 ? 0.30 : 0.06) * k);
+    }
 
     if (this.state === GState.MENU || this.state === GState.END) {
       this.flashlight.drainEnabled = false;

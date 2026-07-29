@@ -301,7 +301,10 @@ export class AudioBus {
 
     // slam everything else down so the scream owns the whole mix
     this.duck.gain.cancelScheduledValues(t);
-    this.duck.gain.setValueAtTime(0.05, t);
+    // EVERYTHING ELSE GETS OUT OF THE WAY. The rest of the mix is pulled to near
+    // silence for the duration, so for a second the only thing that exists is the
+    // attack — which is where the dynamic range comes from.
+    this.duck.gain.setValueAtTime(0.004, t);
     this.duck.gain.setTargetAtTime(1, t + END + 0.25, 0.7);
 
     const V = {
@@ -330,7 +333,9 @@ export class AudioBus {
     // stereo spread: two slightly detuned halves hard-ish left and right
     const outL = ctx.createStereoPanner(); outL.pan.value = -0.55;
     const outR = ctx.createStereoPanner(); outR.pan.value = 0.55;
-    const wide = ctx.createGain(); wide.gain.value = 2.6;
+    // Pushed hard into the brick-wall limiter on scareBus rather than left with
+    // headroom: the limiter is what lets this be enormous without clipping.
+    const wide = ctx.createGain(); wide.gain.value = 4.4;
     shaper.connect(wide); wide.connect(outL); wide.connect(outR);
     outL.connect(this.scareBus); outR.connect(this.scareBus);
 
@@ -338,7 +343,7 @@ export class AudioBus {
     const nb = this._noiseSrc();
     const nbf = ctx.createBiquadFilter(); nbf.type = 'bandpass'; nbf.frequency.value = 1800; nbf.Q.value = 0.6;
     const nbg = ctx.createGain();
-    nbg.gain.setValueAtTime(1.6, t); nbg.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+    nbg.gain.setValueAtTime(3.4, t); nbg.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
     nb.connect(nbf); nbf.connect(nbg); nbg.connect(this.scareBus);
     nb.start(t); nb.stop(t + 0.12);
 
@@ -358,7 +363,7 @@ export class AudioBus {
     const fmt = ctx.createBiquadFilter(); fmt.type = 'bandpass'; fmt.Q.value = 9;
     fmt.frequency.setValueAtTime(V.hiss, t);
     fmt.frequency.exponentialRampToValueAtTime(V.hiss * 0.32, t + END);
-    const grg = ctx.createGain(); grg.gain.value = 0.5;
+    const grg = ctx.createGain(); grg.gain.value = 0.95;
     gr.connect(fmt); fmt.connect(grg); grg.connect(env); gr.start(t); gr.stop(t + END);
 
     // --- 4. sub drop: the part you feel rather than hear ---------------------
@@ -366,7 +371,8 @@ export class AudioBus {
     sub.frequency.setValueAtTime(V.sub[0], t);
     sub.frequency.exponentialRampToValueAtTime(V.sub[1], t + END * 0.85);
     const sg = ctx.createGain();
-    sg.gain.setValueAtTime(0.0001, t); sg.gain.linearRampToValueAtTime(1.5, t + 0.01);
+    // the sub is the body of the thing: it is what you feel rather than hear
+    sg.gain.setValueAtTime(0.0001, t); sg.gain.linearRampToValueAtTime(3.2, t + 0.008);
     sg.gain.exponentialRampToValueAtTime(0.001, t + END);
     sub.connect(sg); sg.connect(this.scareBus); sub.start(t); sub.stop(t + END);
 
@@ -468,6 +474,47 @@ export class AudioBus {
         const tgn = ctx.createGain(); tgn.gain.setValueAtTime(0.5, s2); tgn.gain.exponentialRampToValueAtTime(0.001, s2 + 0.26);
         th.connect(tgn); tgn.connect(head); th.start(s2); th.stop(s2 + 0.3);
       }
+    } else if (kind === 'window') {
+      // GLASS. The window is not a mechanism, so it cannot use the stepped
+      // hinge/thud language of the others: what you hear is a body working its
+      // way over a broken frame. Three layers — fragments shifting, the metal
+      // frame ringing, and cloth-on-grit friction — so this access is instantly
+      // distinguishable from the door and the hatch with your eyes shut.
+      const dur = 0.55 + k * 0.25;
+      // 1. loose fragments: short bright grains, irregularly spaced
+      for (let i = 0; i < 5 + k * 3; i++) {
+        const st = t + Math.random() * dur * 0.8;
+        const n2 = this._noiseSrc();
+        const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 3800 + Math.random() * 2600;
+        const bp2 = ctx.createBiquadFilter(); bp2.type = 'bandpass';
+        bp2.frequency.value = 5200 + Math.random() * 3200; bp2.Q.value = 14;
+        const gg = ctx.createGain();
+        gg.gain.setValueAtTime(0.0001, st);
+        gg.gain.linearRampToValueAtTime(0.10 + Math.random() * 0.10, st + 0.004);
+        gg.gain.exponentialRampToValueAtTime(0.0008, st + 0.05 + Math.random() * 0.07);
+        n2.connect(hp); hp.connect(bp2); bp2.connect(gg); gg.connect(head);
+        n2.start(st); n2.stop(st + 0.16);
+      }
+      // 2. the steel frame ringing as weight goes onto it
+      const ring = ctx.createOscillator(); ring.type = 'triangle';
+      ring.frequency.setValueAtTime(430 - k * 40, t);
+      ring.frequency.exponentialRampToValueAtTime(300 - k * 30, t + dur);
+      const rg = ctx.createGain();
+      rg.gain.setValueAtTime(0.0001, t); rg.gain.linearRampToValueAtTime(0.075 + k * 0.02, t + 0.05);
+      rg.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+      const rq = ctx.createBiquadFilter(); rq.type = 'bandpass'; rq.frequency.value = 900; rq.Q.value = 5;
+      ring.connect(rq); rq.connect(rg); rg.connect(head);
+      ring.start(t); ring.stop(t + dur + 0.05);
+      // 3. the drag: something heavy sliding over grit on the sill
+      const dn = this._noiseSrc();
+      const df = ctx.createBiquadFilter(); df.type = 'bandpass';
+      df.frequency.setValueAtTime(700, t); df.frequency.linearRampToValueAtTime(1700, t + dur);
+      df.Q.value = 1.6;
+      const dg = ctx.createGain();
+      dg.gain.setValueAtTime(0.0001, t); dg.gain.linearRampToValueAtTime(0.11 + k * 0.03, t + dur * 0.35);
+      dg.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+      dn.connect(df); df.connect(dg); dg.connect(head);
+      dn.start(t); dn.stop(t + dur + 0.05);
     } else if (kind === 'vent') {
       // grille chattering in its frame, then the fixings letting go
       const n = this._noiseSrc();
