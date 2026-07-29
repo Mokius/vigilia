@@ -145,8 +145,63 @@ export function prepareModel(root, targetHeight, { darken = 0.15, roughness = 0.
 }
 
 // ---------------------------------------------------------------------------
-// Fuzzy clip binding: behaviour intent -> whatever the pack actually contains.
+// THE CLIP PLAN
+//
+// One entry per behaviour the AI can ask for, chosen by watching what each clip
+// in the pack actually does and how long it runs — not by trusting its filename.
+// Mixamo exports every take as `Armature|mixamo.com|Layer0`, so the conversion
+// renames each action after its source file and this table addresses those names.
+//
+//   clip   source action name (from tools/mixamo_to_glb.py)
+//   rate   playback speed; NEGATIVE plays the clip backwards
+//   loop   cycle or play once and hold the last pose
+//   range  [from, to] in SECONDS — a sub-clip, for when only part of a take is
+//          the beat we want
+//
+// FOUR BEHAVIOURS HAVE NO CLIP in this pack and are honestly not faked here:
+// peeking round a door, turning the head, looking at the player and backing
+// away. The first three are driven procedurally from the head/neck bones (see
+// enemy.js aimHead), which layers over whatever cycle is playing; the retreat is
+// the walk cycle run in reverse, which is what `rate: -1` is for.
 // ---------------------------------------------------------------------------
+export const CLIP_PLAN = {
+  // waiting, watching. The only neutral cycle in the pack.
+  idle:      { clip: 'zombie_idle',      rate: 1.00, loop: true },
+  // POSITION 1, far away: the slow arrival. A 5.1 s crawl read at a third speed
+  // is a heavy, laboured emergence — much better than any idle for "it is here".
+  far:       { clip: 'zombie_crawl',     rate: 0.34, loop: true },
+  // coming out of a duct or a pit: the first two seconds of the crawl, which is
+  // where the take pushes up off the ground
+  emerge:    { clip: 'zombie_crawl',     rate: 0.55, loop: false, range: [0.0, 2.0] },
+  crawl:     { clip: 'zombie_crawl',     rate: 0.85, loop: true },
+  // the fast crawl: a 0.67 s cycle, which is what a dash between stations needs
+  crawlFast: { clip: 'running_crawl',    rate: 1.15, loop: true },
+  // POSITION 2, closing in
+  walk:      { clip: 'zombie_walk',      rate: 1.00, loop: true },
+  // POSITION 3 and dashes: 25 frames, tight enough to read at speed
+  run:       { clip: 'zombie_run',       rate: 1.00, loop: true },
+  // the warning cry at mid distance
+  scream:    { clip: 'zombie_scream',    rate: 1.00, loop: false },
+  // the strike that happens if the player never answers
+  attack:    { clip: 'zombie_attack',    rate: 1.05, loop: false },
+  // THE SCREAMER: `neck bite` is the lunge-at-the-camera take. Trimmed to the
+  // 2 s where it actually arrives, so it lands with the scream instead of
+  // spending its first half second winding up.
+  jumpscare: { clip: 'zombie_neck_bite', rate: 1.15, loop: false, range: [0.55, 2.55] },
+  // an alternative bite, so the two characters do not scare identically
+  jumpscareB:{ clip: 'zombie_biting_2',  rate: 1.10, loop: false, range: [0.20, 2.20] },
+  // DRIVEN OFF BY THE LIGHT: no retreat take exists, so the walk runs backwards.
+  retreat:   { clip: 'zombie_walk',      rate: -1.55, loop: true },
+  // and when the beam finally breaks it, it goes down
+  banish:    { clip: 'zombie_dying',     rate: 1.35, loop: false },
+  death:     { clip: 'zombie_death',     rate: 1.00, loop: false },
+  // straining at a gap: idle slowed right down, with the head aim doing the work
+  peek:      { clip: 'zombie_idle',      rate: 0.45, loop: true },
+  climb:     { clip: 'zombie_walk',      rate: 0.75, loop: true },
+};
+
+// Fallback for a pack we have never seen: guess from clip names as before, so
+// dropping in some other character still produces something that moves.
 const INTENT_KEYS = {
   idle:   ['idle', 'breath', 'stand', 'neutral', 'tpose', 'pose'],
   walk:   ['walk', 'stagger', 'shamble', 'stalk', 'move', 'run', 'sneak'],
@@ -167,25 +222,62 @@ function scoreName(name, keys) {
   return best;
 }
 
+const FPS = 30;   // Mixamo takes are authored and exported at 30 fps
+
 /**
- * Returns { idle: AnimationClip|null, walk: ..., crawl: ..., scream: ..., ... }
- * choosing the best-scoring clip for each intent, with `idle` as the last
- * resort so a state always has something to play.
+ * Resolve the behaviour intents against the clips a model actually ships.
+ *
+ * Returns { <intent>: { clip, rate, loop } }, plus `all` (the raw clip names)
+ * and `plan` (true when the explicit table matched, false when we fell back to
+ * guessing from names). Sub-clips are cut once, here, and cached on the entry —
+ * AnimationUtils.subclip copies keyframes, so doing it per playback would churn.
  */
 export function bindClips(animations) {
-  const out = {};
   const list = animations || [];
+  const byName = new Map(list.map((c) => [c.name, c]));
+  const out = { all: list.map((c) => c.name), plan: false, missing: [] };
+
+  // --- preferred path: the explicit plan --------------------------------------
+  let matched = 0;
+  for (const [intent, spec] of Object.entries(CLIP_PLAN)) {
+    const src = byName.get(spec.clip);
+    if (!src) { out.missing.push(intent + '<-' + spec.clip); continue; }
+    let clip = src;
+    if (spec.range) {
+      const a = Math.max(0, Math.round(spec.range[0] * FPS));
+      const b = Math.min(Math.round(src.duration * FPS), Math.round(spec.range[1] * FPS));
+      if (b > a + 1) clip = THREE.AnimationUtils.subclip(src, intent, a, b, FPS);
+    }
+    out[intent] = { clip, rate: spec.rate, loop: spec.loop };
+    matched++;
+  }
+
+  if (matched >= 6) {
+    out.plan = true;
+    // Anything the plan could not fill borrows the nearest thing that exists,
+    // so a state always has something to play.
+    const sub = (k, ...alts) => { if (!out[k]) for (const a of alts) if (out[a]) { out[k] = out[a]; return; } };
+    sub('far', 'crawl', 'idle'); sub('emerge', 'crawl', 'idle');
+    sub('crawlFast', 'crawl', 'run', 'walk'); sub('run', 'walk');
+    sub('retreat', 'walk', 'idle'); sub('banish', 'death', 'idle');
+    sub('jumpscare', 'scream', 'attack'); sub('jumpscareB', 'jumpscare');
+    sub('peek', 'idle'); sub('climb', 'walk');
+    return out;
+  }
+
+  // --- fallback: an unknown pack. Guess from names, as before. ----------------
   for (const intent of Object.keys(INTENT_KEYS)) {
     let best = null, bestScore = 0;
     for (const c of list) {
       const s = scoreName(c.name, INTENT_KEYS[intent]);
       if (s > bestScore) { bestScore = s; best = c; }
     }
-    out[intent] = best;
+    if (best) out[intent] = { clip: best, rate: 1, loop: intent !== 'scream' && intent !== 'death' };
   }
-  if (!out.idle && list.length) out.idle = list[0];
-  // Never leave the critical intents empty if anything at all exists.
-  for (const k of ['walk', 'crawl', 'climb', 'scream', 'peek']) if (!out[k]) out[k] = out.walk || out.idle;
-  out.all = list.map((c) => c.name);
+  if (!out.idle && list.length) out.idle = { clip: list[0], rate: 1, loop: true };
+  for (const k of ['walk', 'crawl', 'climb', 'scream', 'peek', 'run', 'far', 'emerge',
+                   'crawlFast', 'retreat', 'banish', 'attack', 'jumpscare', 'jumpscareB']) {
+    if (!out[k]) out[k] = out.walk || out.idle;
+  }
   return out;
 }

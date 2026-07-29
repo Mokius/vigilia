@@ -30,14 +30,24 @@ export const EState = {
   DONE: 'done',
 };
 
-// Stage (from the route waypoint) -> which animation intent to play.
-const STAGE_CLIP = {
-  slit: 'idle', stare: 'idle', far: 'idle',
-  peek: 'peek', threshold: 'walk', hall: 'walk', inside: 'walk', close: 'walk',
-  emerge: 'crawl', drop: 'crawl', crawl: 'crawl', cross: 'walk', climb: 'climb',
-};
+// Stages whose waypoints are on the floor: these read as crawling, not walking.
+const CRAWL_STAGES = new Set(['emerge', 'drop', 'crawl']);
 
-const HEAD_BONE_RE = /(mixamorig)?:?head$/i;
+// THREE READABLE POSITIONS. A route has five or six waypoints, but the player
+// should only ever have to read three things: it is far, it is closing, it is on
+// top of me. The tier drives the animation, the pacing and an escalating cry, so
+// the threat level is legible without counting stations.
+const TIER_FAR = 1, TIER_MID = 2, TIER_CLOSE = 3;
+
+// How long a continuous beam takes to make it flinch and start giving ground.
+// This is deliberately short: the light has to feel like it WORKS.
+const LIGHT_REACT = 0.10;
+const LIGHT_MIN = 0.28;       // beam coverage that counts as "being lit"
+
+const HEAD_BONE_RE = /(mixamorig\d*)?:?head$/i;
+
+// scratch, so the per-frame head aim allocates nothing
+const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3();
 
 function proceduralBody(eyeColor) {
   // Fallback creature: gaunt, near-black, hunched. Reads as a silhouette.
@@ -106,7 +116,7 @@ export class Enemy {
       this.source = got.url;
       if (got.animations.length) {
         this.mixer = new THREE.AnimationMixer(this.body);
-        this._playIntent(STAGE_CLIP[this.stage] || 'idle', true);
+        this._playIntent(this._intentNow(false), true);
       }
       // Prefer the real head bone for eye placement / light detection.
       this.body.traverse((o) => { if (o.isBone && HEAD_BONE_RE.test(o.name)) this.headBone = o; });
@@ -141,23 +151,111 @@ export class Enemy {
     this.scene.add(this.eyes);
   }
 
+  /**
+   * Play a behaviour. `intent` names a row of the clip plan, which carries its
+   * own speed, loop mode and (for the screamer) trim — so the choice of what a
+   * behaviour LOOKS like lives in one table next to the clips, not scattered
+   * through the state machine.
+   */
   _playIntent(intent, immediate = false) {
     if (!this.mixer || !this.clips) return;
-    const clip = this.clips[intent] || this.clips.idle;
-    if (!clip || clip === this._curClip) return;
-    const next = this.mixer.clipAction(clip);
+    const entry = this.clips[intent] || this.clips.idle;
+    if (!entry || !entry.clip) return;
+    if (entry.clip === this._curClip && intent === this._curIntent) return;
+    const next = this.mixer.clipAction(entry.clip);
     next.reset();
-    next.setLoop(intent === 'scream' ? THREE.LoopOnce : THREE.LoopRepeat, Infinity);
+    next.setLoop(entry.loop === false ? THREE.LoopOnce : THREE.LoopRepeat, Infinity);
     next.clampWhenFinished = true;
-    next.timeScale = this._timeScale || 1;
-    if (this._curAction && !immediate) this._curAction.crossFadeTo(next.play(), 0.35, false);
+    // A negative rate runs the take backwards — which is how the retreat is
+    // built, since the pack has no backing-away animation. three.js will not
+    // wind back from time 0, so it has to start at the end.
+    const rate = (entry.rate || 1) * (this._clipRate || 1);
+    next.timeScale = rate;
+    if (rate < 0) next.time = entry.clip.duration;
+    if (this._curAction && !immediate) this._curAction.crossFadeTo(next.play(), 0.28, false);
     else { if (this._curAction) this._curAction.stop(); next.play(); }
-    this._curAction = next; this._curClip = clip; this._curIntent = intent;
+    this._curAction = next; this._curClip = entry.clip; this._curIntent = intent;
+    this._curRate = entry.rate || 1;
+  }
+
+  /** Which of the three readable positions this station belongs to. */
+  _tierOf(station) {
+    const last = this.route.points.length - 1;
+    const f = last > 0 ? station / last : 0;
+    return f < 0.34 ? TIER_FAR : f < 0.67 ? TIER_MID : TIER_CLOSE;
+  }
+
+  get tier() { return this._tierOf(this.station); }
+
+  /**
+   * The animation for what it is doing RIGHT NOW, chosen from the tier as well
+   * as the waypoint. Same route, three different readings: a laboured drag when
+   * it is far, a walk when it is closing, a run when it is on top of you.
+   */
+  _intentNow(moving) {
+    const crawling = CRAWL_STAGES.has(this.stage);
+    const t = this.tier;
+    if (moving) {
+      if (crawling) return t >= TIER_MID ? 'crawlFast' : 'crawl';
+      return t >= TIER_CLOSE ? 'run' : 'walk';
+    }
+    if (this.stage === 'emerge') return 'emerge';
+    if (t === TIER_FAR) return crawling ? 'far' : 'peek';
+    if (crawling) return 'crawl';
+    return 'idle';
+  }
+
+  /**
+   * Crossing into a nearer tier is announced. The cry is the thing that makes
+   * "it has got closer" impossible to miss, and it gives the player the cue to
+   * go looking before the danger is immediate.
+   */
+  _checkTier(ev) {
+    const t = this.tier;
+    if (t === this._tier) return;
+    const rising = this._tier !== undefined && t > this._tier;
+    this._tier = t;
+    if (!rising || this.harmless) return;
+    if (t === TIER_MID) {
+      ev.push({ type: 'cue', payload: { sound: 'knock', pan: this.pan, muffle: 0.2 } });
+    } else if (t === TIER_CLOSE) {
+      this._playIntent('scream', true);
+      ev.push({ type: 'cue', payload: { sound: 'whisper', pan: this.pan, muffle: 0 } });
+    }
+  }
+
+  /**
+   * Additive look-at. The pack has no head-turn or look-at take, so this layers
+   * a limited yaw and pitch on top of whatever cycle is playing, applied AFTER
+   * the mixer has written the pose. Additive rather than absolute on purpose: a
+   * full lookAt would fight the rig's rest orientation and can snap the head to
+   * a wrong axis, whereas a bounded delta can only ever turn it a little.
+   */
+  _aimHead(weight) {
+    const b = this.headBone;
+    if (!b || weight <= 0.001) return;
+    b.updateWorldMatrix(true, false);
+    const hp = _v1.setFromMatrixPosition(b.matrixWorld);
+    const to = _v2.subVectors(this.eye, hp);
+    const flat = Math.hypot(to.x, to.z);
+    if (flat < 1e-4) return;
+    let d = Math.atan2(to.x, to.z) - this.group.rotation.y;
+    while (d > Math.PI) d -= Math.PI * 2;
+    while (d < -Math.PI) d += Math.PI * 2;
+    const yaw = clamp(d, -0.75, 0.75) * weight;
+    const pitch = clamp(Math.atan2(to.y, flat), -0.45, 0.45) * weight;
+    b.rotateY(yaw * 0.55);
+    b.rotateX(-pitch * 0.45);
+  }
+
+  /** Keep the live action's speed in step with the dash multiplier. */
+  _syncRate() {
+    if (this._curAction) this._curAction.timeScale = (this._curRate || 1) * (this._clipRate || 1);
   }
 
   get headWorld() {
     if (this.headBone) return this.headBone.getWorldPosition(new THREE.Vector3());
-    const crawl = (STAGE_CLIP[this.stage] === 'crawl');
+    const crawl = CRAWL_STAGES.has(this.stage);
     const h = (this.bodyHeight || this.type.height);
     return this.group.position.clone().setY(this.group.position.y + (crawl ? h * 0.22 : h * 0.92));
   }
@@ -208,7 +306,11 @@ export class Enemy {
     this.dashDur = randRange(this.rng, this.type.dashMin, this.type.dashMax);
     // aggressive, fast animation for the blur of movement
     this._clipRate = 3.4;
-    this._playIntent(STAGE_CLIP[this.stage] === 'crawl' ? 'crawl' : 'walk', true);
+    // Backing away has to KEEP the reverse cycle. This was calling _intentNow()
+    // unconditionally, which handed the forward walk straight back and wiped the
+    // retreat the caller had just started — so nothing ever visibly reversed.
+    const retreating = this.state === EState.RETREAT || to < this.station;
+    this._playIntent(retreating ? 'retreat' : this._intentNow(true), true);
   }
 
   /** Shadow casting is budgeted by the manager (only the nearest few). */
@@ -252,13 +354,14 @@ export class Enemy {
         return ev;
       }
       this._setOpacity(this.phaseT / SPAWN.fadeIn);
-      this._playIntent(STAGE_CLIP[this.stage] || 'idle');
+      this._playIntent(this._intentNow(false));
       if (this.phaseT >= SPAWN.fadeIn + SPAWN.holdAfter) { this.phase = 'live'; this._setOpacity(1); }
       this._cues(dt, ev);
       return ev;
     }
 
     this.lit = flashlight.litAmount(this.headWorld);
+    this._checkTier(ev);
 
     // ---- STATIONS, not gliding --------------------------------------------
     // It stands dead still and watches you, then crosses to the next station in
@@ -323,17 +426,31 @@ export class Enemy {
       // sees the opening animation, hears it and watches the thing move before
       // being taught the counter.
       const canBeRepelled = this.station >= (this.demoLock || 0);
-      if (this.state === EState.APPROACH && this.lit > 0.35 && canBeRepelled) {
-        this.dwell += dt * this.lit;
-        this._playIntent('peek');            // flinches the instant the beam lands
-        this.holdT = Math.max(this.holdT, 0.25);   // pinned: cannot advance while lit
-        if (this.dwell >= this.type.banishTime) {
-          this.state = EState.RETREAT;
-          ev.push({ type: 'banish', payload: { pan: this.pan, name: this.type.name } });
-          this._beginDash(Math.max(0, this.station - 1));
-        }
+      const beamOn = this.lit > LIGHT_MIN;
+      // Continuous exposure, with a short memory so a flickering beam still
+      // counts but a beam that has genuinely left does not.
+      this.litT = beamOn ? (this.litT || 0) + dt : Math.max(0, (this.litT || 0) - dt * 2.5);
+
+      // IT GIVES GROUND AT ONCE. This used to accumulate `dwell` up to
+      // banishTime (0.55-0.90 s) before anything visible happened, so the lamp
+      // felt inert. Now a tenth of a second of steady light turns it around and
+      // it starts backing off the same instant — and if you hold the beam it
+      // keeps stepping back, one position at a time, until it is gone.
+      if (this.state === EState.APPROACH && canBeRepelled && this.litT >= LIGHT_REACT) {
+        this.state = EState.RETREAT;
+        this._playIntent('retreat', true);
+        ev.push({ type: 'banish', payload: { pan: this.pan, name: this.type.name } });
+        this._beginDash(Math.max(0, this.station - 1));
         this._cues(dt, ev);
         return ev;
+      }
+      // Take the beam off it and it recovers its nerve — but not instantly.
+      if (this.state === EState.RETREAT) {
+        if (beamOn) { this.holdT = Math.min(this.holdT, 0.16); this._offBeamT = 0; }
+        else {
+          this._offBeamT = (this._offBeamT || 0) + dt;
+          if (this._offBeamT > 0.9 && this.station > 0) { this.state = EState.APPROACH; this._offBeamT = 0; }
+        }
       }
       // Demo phase: it shrugs the beam off and keeps working its way in, so the
       // logic below (advance / force the access) still runs.
@@ -388,8 +505,18 @@ export class Enemy {
   animate(dt) {
     if (!this.ready) return;
     if (this.mixer) {
-      if (this._curAction) this._curAction.timeScale = this.dashing ? this._clipRate : 1;
+      this._syncRate();
       this.mixer.update(dt);
+      // IT LOOKS AT YOU. Applied after the mixer has written the pose, because
+      // this is an additive layer on top of whatever cycle is playing. Strongest
+      // while it stands still watching, dropped during a dash and during the
+      // attack, where the take itself owns the head.
+      const want = this.state === EState.ATTACK || this._scarePose ? 0
+                 : this.dashing ? 0.15
+                 : (this._curIntent === 'peek' || this._curIntent === 'idle' || this._curIntent === 'far') ? 1.0
+                 : 0.45;
+      this._headAimW = (this._headAimW || 0) + (want - (this._headAimW || 0)) * Math.min(1, dt * 5);
+      this._aimHead(this._headAimW * this.opacity);
     } else if (this.body && this.body.userData.proc) {
       // idle life for the procedural fallback
       // Procedural fallback: almost frozen while holding (only breath), then a
@@ -412,7 +539,8 @@ export class Enemy {
     // Exposure builds while the beam holds. The body twists away, cowers and
     // trembles harder the longer it is caught, so the flashlight reads as a
     // weapon rather than a detector.
-    const exTarget = clamp(this.dwell / (this.type.banishTime || 0.6), 0, 1);
+    // Driven by continuous exposure now that `dwell` is no longer the gate.
+    const exTarget = clamp((this.litT || 0) / 0.55, 0, 1);
     this._ex = (this._ex || 0) + (exTarget - (this._ex || 0)) * Math.min(1, dt * 10);
     const ex = this._ex;
     if (this._baseQuat && this.state !== EState.ATTACK) {

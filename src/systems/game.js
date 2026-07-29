@@ -78,7 +78,10 @@ export class Game {
     this.timer = this.isTutorial ? Number.POSITIVE_INFINITY : CONFIG.game.nightSeconds;
     this.manager.start(this.night, { autoSpawn: !this.isTutorial });
     if (this.isTutorial) this.pickups.clear();
-    else this.pickups.spawn(mulberry32((0xabcd ^ Math.imul(this.night, 48271)) >>> 0));
+    // Deliberately NOT seeded. The enemy schedule stays deterministic per night,
+    // but cell placement must not be: with a seeded rng the first battery of
+    // night N was always in the same place and the player simply learned it.
+    else this.pickups.spawn();
     this.room.setClock(0);
     this.crt.rollAway();
     this.state = GState.PLAYING;
@@ -255,7 +258,8 @@ export class Game {
       if (e._setOpacity) e._setOpacity(1);
       if (e.body) e.body.visible = true;
       e._scarePose = true;
-      if (e._playIntent) e._playIntent('scream', true);
+      // the lunge-at-the-camera take, per character so the two do not scare alike
+      if (e._playIntent) e._playIntent(e.type.jumpscareClip || 'jumpscare', true);
       // Lit from just ABOVE AND BEHIND the player, like a flashgun, not from a
       // lamp wedged between the player and the face. At this range a light in
       // the gap is 25 cm from the skin and clips it to white however low you

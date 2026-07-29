@@ -107,6 +107,31 @@ export class Room {
     // Cast iron: the drainage hatch and its frame. Dark, dry, barely specular.
     const iron = this._mat(tex.rust, 2.4, 2.4, { color: 0x35383c, metalness: 0.28, roughness: 0.94, normalScale: new THREE.Vector2(1.7, 1.7) });
     this.iron = iron;
+
+    // ---- MATERIAL LIBRARY --------------------------------------------------
+    // One generic grey metal was doing the work of a dozen different substances,
+    // which is why the whole room looked machined from the same billet. Each of
+    // these answers light differently: the spread of the highlight, how dark it
+    // goes in shadow and how much colour it keeps are all separated, not nudged.
+    // Tiling is kept at or near 1 on small parts — a repeat of 2 on a 30 cm
+    // bracket is a visible pattern inside a single object.
+    //
+    // galvanised steel: spangled, cool, semi-matte. Ducting, trays, tube frames.
+    const galv = this._mat(tex.metal, 1.0, 1.0, { color: 0x777d84, metalness: 0.42, roughness: 0.72, normalScale: new THREE.Vector2(0.8, 0.8) });
+    // aluminium: lighter and slightly warmer than galv, finer grain. Motor bodies,
+    // kick plates, extrusions.
+    const alu = this._mat(tex.metal, 1.0, 1.0, { color: 0x8f949a, metalness: 0.60, roughness: 0.52, normalScale: new THREE.Vector2(0.5, 0.5) });
+    // stainless: the only genuinely bright metal in the room, and it is used only
+    // on things a hand touches, so a hard highlight always means "handle".
+    const stainless = new THREE.MeshStandardMaterial({ color: 0x9ba1a8, metalness: 0.72, roughness: 0.34 });
+    // technical plastic: knobs, handles, cable glands. Zero metalness, soft sheen.
+    const tech = new THREE.MeshStandardMaterial({ color: 0x2b2f34, metalness: 0.0, roughness: 0.48 });
+    // rubber: gaskets, wheels, feet. The flattest thing here — it must never
+    // catch a highlight at all.
+    const rubber = new THREE.MeshStandardMaterial({ color: 0x14161a, metalness: 0.0, roughness: 0.98 });
+    // chipped paint over steel: the sheet where the coating has gone
+    const chipped = this._mat(tex.rust, 1.0, 1.2, { color: 0x4a5148, metalness: 0.14, roughness: 0.90, normalScale: new THREE.Vector2(1.9, 1.9) });
+    Object.assign(this, { galv, alu, stainless, tech, rubber, chipped });
     // aged plastic / bakelite: knobs, switch bodies
     const plastic = new THREE.MeshStandardMaterial({ color: 0x23252a, metalness: 0.0, roughness: 0.62 });
     // worn timber: crates and pallets
@@ -226,13 +251,21 @@ export class Room {
     // Every spot is ON a surface that exists after the re-layout, and none of
     // them sits inside a creature's approach — a cell you cannot reach without
     // standing in a monster is not a reward, it is a bug.
+    // TEN surfaces, spread across all four walls and four different heights, so
+    // the spawner has somewhere varied to draw from every time (see PickupField:
+    // it picks one when it needs one and excludes the recent ones, instead of
+    // seeding a fixed layout at the start of the night).
     this.pickupSpots = [
-      { pos: new V3(-0.72, 0.99, 1.18), pan: -0.4 },   // maintenance bench, left end
-      { pos: new V3(-0.12, 0.99, 1.16), pan: -0.1 },   // maintenance bench, right end
-      { pos: new V3(-1.34, 0.80, 1.20), pan: -0.85 },  // industrial shelving, upper shelf
-      { pos: new V3(1.36, 1.56, 1.05), pan: 0.85 },    // top of the breaker cabinet
-      { pos: new V3(0.76, 1.14, 1.26), pan: 0.45 },    // stacked crate, right-back
-      { pos: new V3(1.24, 0.40, -0.90), pan: 0.7 },    // pump plinth (faces the window)
+      { pos: new V3(-0.72, 0.94, 1.18), pan: -0.40 },  // bench, left end
+      { pos: new V3(-0.12, 0.94, 1.14), pan: -0.10 },  // bench, right end
+      { pos: new V3(-0.42, 0.27, 1.21), pan: -0.30 },  // bench lower shelf (makes you crouch)
+      { pos: new V3(-1.34, 0.98, 1.30), pan: -0.85 },  // shelving, top shelf
+      { pos: new V3(-1.34, 0.68, 1.08), pan: -0.85 },  // shelving, middle shelf
+      { pos: new V3(-0.42, 0.48, 0.86), pan: -0.35 },  // left on the chair
+      { pos: new V3(1.36, 1.50, 1.05), pan: 0.85 },    // top of the breaker cabinet
+      { pos: new V3(0.76, 1.11, 1.26), pan: 0.45 },    // top of the stacked crate
+      { pos: new V3(0.42, 0.56, 1.34), pan: 0.25 },    // the low crate
+      { pos: new V3(1.24, 0.12, -1.05), pan: 0.70 },   // pump plinth (faces the window)
     ];
   }
 
@@ -337,7 +370,7 @@ export class Room {
     // Shortened and pushed against the wall. At 0.62 m long it reached x=-0.01,
     // straight through the middle of the only lane anything can walk down.
     for (const yy of [0.55, 0.92]) {
-      const bar2 = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.30, 8), this.metal);
+      const bar2 = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.30, 8), this.galv);
       bar2.rotation.z = Math.PI / 2; bar2.position.set(-opW / 2 + 0.17, yy, 0); bar2.castShadow = true; railGrp.add(bar2);
     }
     for (const px of [-opW / 2 + 0.035, -opW / 2 + 0.305]) {
@@ -612,7 +645,7 @@ export class Room {
 
     // flanged collar around the mouth: four bars with a visible rebate
     const collar = (sx, sy, px, py) => {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, 0.075), this.metal);
+      const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, 0.075), this.galv);
       m.position.set(px, py, 0.03); m.castShadow = m.receiveShadow = true; grp.add(m);
     };
     collar(O.w + 0.14, 0.07, 0, hh + 0.035); collar(O.w + 0.14, 0.07, 0, -hh - 0.035);
@@ -627,9 +660,9 @@ export class Room {
 
     // hinged louvre: pivot on the TOP edge, blades + backing plate below it
     const cover = new THREE.Group(); cover.position.set(0, hh, 0.055); grp.add(cover);
-    const plate = new THREE.Mesh(new THREE.BoxGeometry(O.w + 0.05, O.h + 0.04, 0.012), this.metal);
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(O.w + 0.05, O.h + 0.04, 0.012), this.galv);
     plate.position.set(0, -O.h / 2, -0.004); plate.castShadow = plate.receiveShadow = true; cover.add(plate);
-    const blades = new THREE.InstancedMesh(new THREE.BoxGeometry(O.w - 0.02, 0.045, 0.022), this.metal, 5);
+    const blades = new THREE.InstancedMesh(new THREE.BoxGeometry(O.w - 0.02, 0.045, 0.022), this.galv, 5);
     blades.castShadow = true;
     const mB = new THREE.Matrix4(), qB = new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.42, 0, 0));
     for (let i = 0; i < 5; i++) { mB.compose(new V3(0, -0.065 - i * 0.098, 0.012), qB, new V3(1, 1, 1)); blades.setMatrixAt(i, mB); }
@@ -692,12 +725,21 @@ export class Room {
     nose.position.set(0, 0.006, -R - 0.045); nose.receiveShadow = true; grp.add(nose);
 
     // --- the grating: bearing bars on edge + transverse rods + a bolted frame
+    // HINGE LINE. It used to sit at z=R, the inner face of the kerb, so the leaf
+    // swept straight through the kerb on its way up and the opening looked
+    // mechanically impossible. It now pivots OUTSIDE the kerb and above its top
+    // face, which is where a surface-mounted hinge actually goes.
+    const ZH = R + 0.09;
     const lid = new THREE.Group();
-    lid.position.set(0, 0.035, R);            // hinge line on the FAR edge
+    // 0.055 put the under-welded cross rods at y=0.030, inside the kerb's own
+    // 0..0.035 band, so the grating clipped its frame at every opening angle.
+    // The leaf sits in a raised frame: 0.075 clears the kerb by 15 mm.
+    lid.position.set(0, 0.075, ZH);
     grp.add(lid);
-    const inner = O.w - 0.05;
-    for (const [sx, sz, px, pz] of [[inner + 0.06, 0.05, 0, 0], [inner + 0.06, 0.05, 0, -inner],
-                                    [0.05, inner, -(inner + 0.005) / 2, -inner / 2], [0.05, inner, (inner + 0.005) / 2, -inner / 2]]) {
+    const inner = ZH + R + 0.045;             // leaf reaches across the aperture
+    const wIn = O.w - 0.05;
+    for (const [sx, sz, px, pz] of [[wIn + 0.06, 0.05, 0, 0], [wIn + 0.06, 0.05, 0, -inner],
+                                    [0.05, inner, -(wIn + 0.005) / 2, -inner / 2], [0.05, inner, (wIn + 0.005) / 2, -inner / 2]]) {
       const f = new THREE.Mesh(new THREE.BoxGeometry(sx, 0.038, sz), iron);
       f.position.set(px, 0, pz); f.castShadow = f.receiveShadow = true; lid.add(f);
     }
@@ -707,16 +749,18 @@ export class Room {
     bars.castShadow = bars.receiveShadow = true;
     const mB = new THREE.Matrix4(), qB = new THREE.Quaternion();
     for (let i = 0; i < nBar; i++) {
-      mB.compose(new V3(-inner / 2 + (i + 0.5) * (inner / nBar), 0, -inner / 2), qB.identity(), new V3(1, 1, 1));
+      mB.compose(new V3(-wIn / 2 + (i + 0.5) * (wIn / nBar), 0, -inner / 2), qB.identity(), new V3(1, 1, 1));
       bars.setMatrixAt(i, mB);
     }
     bars.instanceMatrix.needsUpdate = true; lid.add(bars);
-    // twisted cross rods, sitting lower so the two layers read separately
+    // Cross rods WELDED UNDER the bearing bars. They used to sit at y=-0.008,
+    // inside the 34 mm depth of the bars themselves, so the two layers occupied
+    // the same space and the grating read as passing through itself.
     const nRod = 5;
-    const rods = new THREE.InstancedMesh(new THREE.BoxGeometry(inner, 0.009, 0.009), iron, nRod);
+    const rods = new THREE.InstancedMesh(new THREE.BoxGeometry(wIn, 0.009, 0.009), iron, nRod);
     rods.castShadow = true;
     for (let i = 0; i < nRod; i++) {
-      mB.compose(new V3(0, -0.008, -0.035 - i * (inner - 0.07) / (nRod - 1)),
+      mB.compose(new V3(0, -0.0245, -0.05 - i * (inner - 0.12) / (nRod - 1)),
         qB.setFromEuler(new THREE.Euler(0, 0, 0.5)), new V3(1, 1, 1));
       rods.setMatrixAt(i, mB);
     }
@@ -725,10 +769,17 @@ export class Room {
     const handle = new THREE.Mesh(new THREE.TorusGeometry(0.05, 0.009, 5, 12, Math.PI), this.steel);
     handle.rotation.set(Math.PI / 2, 0, 0); handle.position.set(0, 0.02, -inner + 0.07);
     handle.castShadow = true; lid.add(handle);
+    // Real hinges ON the hinge line, both halves, so the axis of rotation is
+    // visible and the movement reads as hardware rather than a pivot in mid-air.
     for (const sx of [-1, 1]) {
-      const kn = new THREE.Mesh(new THREE.CylinderGeometry(0.017, 0.017, 0.06, 8), iron);
-      kn.rotation.z = Math.PI / 2; kn.position.set(sx * (inner / 2 - 0.07), 0, 0.012);
+      const kx = sx * (wIn / 2 - 0.08);
+      const kn = new THREE.Mesh(new THREE.CylinderGeometry(0.019, 0.019, 0.075, 10), iron);
+      kn.rotation.z = Math.PI / 2; kn.position.set(kx, 0, 0);
       kn.castShadow = true; lid.add(kn);
+      const strap = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.014, 0.10), iron);
+      strap.position.set(kx, -0.008, -0.05); strap.castShadow = true; lid.add(strap);
+      const base = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.05, 0.07), iron);
+      base.position.set(kx, 0.025, ZH + 0.045); base.castShadow = true; grp.add(base);
     }
     this.hatchLid = lid;
   }
@@ -906,13 +957,13 @@ export class Room {
     // the back wall and made it overlap the old desk — the two pieces of
     // furniture were inside each other. There is now one work surface, not two.
     const bench = new THREE.Group(); bench.position.set(-0.42, 0, 1.21); this.group.add(bench);
-    const top = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.06, 0.52), this.painted);
+    const top = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.06, 0.52), this.timber);
     top.position.set(0, 0.88, 0); top.castShadow = top.receiveShadow = true; bench.add(top);
     // an apron under the front edge, so it is joinery and not a floating slab
     const apron = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.09, 0.03), this.painted);
     apron.position.set(0, 0.80, -0.245); apron.castShadow = true; bench.add(apron);
     for (const [bx, bz] of [[-0.42, -0.21], [0.42, -0.21], [-0.42, 0.21], [0.42, 0.21]]) {
-      const l = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.88, 0.06), this.metal);
+      const l = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.88, 0.06), this.galv);
       l.position.set(bx, 0.44, bz); l.castShadow = true; bench.add(l);
     }
     // lower stock shelf between the legs
@@ -921,7 +972,7 @@ export class Room {
     const backboard = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.5, 0.035), this.rust);
     backboard.position.set(0, 1.16, 0.24); backboard.castShadow = true; bench.add(backboard);
     // tools hanging on the backboard: instanced, one draw call
-    const tools = new THREE.InstancedMesh(new THREE.BoxGeometry(0.03, 0.22, 0.03), this.metal, 5);
+    const tools = new THREE.InstancedMesh(new THREE.BoxGeometry(0.03, 0.22, 0.03), this.stainless, 5);
     tools.castShadow = true;
     for (let i = 0; i < 5; i++) {
       m.compose(new V3(-0.42 - 0.34 + i * 0.17, 1.14, 1.21 + 0.20),
@@ -937,7 +988,9 @@ export class Room {
     // the room. Tubular frame, worn ply seat and back: a real object, and it
     // stands where no approach route passes.
     const chair = new THREE.Group(); chair.position.set(-0.42, 0, 0.86); chair.rotation.y = 0.22; this.group.add(chair);
-    const seatMat = this.timber, frameMat = this.metal;
+    // tubular galvanised frame, aged ply seat, rubber feet: three substances,
+    // where before the whole chair was the one generic metal.
+    const seatMat = this.timber, frameMat = this.galv;
     const seat = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.035, 0.38), seatMat);
     seat.position.y = 0.44; seat.castShadow = seat.receiveShadow = true; chair.add(seat);
     // slight lip at the front of the pan
@@ -967,36 +1020,67 @@ export class Room {
     backLow.position.set(0, 0.63, 0.185); backLow.rotation.x = -0.12; backLow.castShadow = true; chair.add(backLow);
 
     // RIGHT-BACK = electrical distribution. Tells you where the power is.
-    // Pushed back to z=1.05. At z=0.75 it stood 24 cm from the edge of the window
-    // opening, so the wall's two subjects fought over the same square metre.
-    const cab = new THREE.Group(); cab.position.set(w - 0.14, 1.05, 1.05); this.group.add(cab);
-    const box2 = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.85, 0.62), this.equip);
+    // ---- BREAKER CABINET, rebuilt ------------------------------------------
+    // The old one was a plain box with a thin flat plate hung off it, in the same
+    // grey as everything else: no depth, no reveal, no frame, so neither the
+    // enclosure nor the door had a readable shape. A distribution board reads
+    // through its proportions and its EDGES — a deep enclosure, a rolled-lip
+    // door standing proud of it, and a shadow gap between the two.
+    const CW = 0.24, CH = 1.06, CD = 0.60;         // wall-depth, height, along-wall
+    const cab = new THREE.Group(); cab.position.set(w - CW / 2 - 0.01, 1.02, 1.02); this.group.add(cab);
+    // the enclosure: galvanised sheet, recessed back so the door has a rebate
+    const box2 = new THREE.Mesh(new THREE.BoxGeometry(CW, CH, CD), this.galv);
     box2.castShadow = box2.receiveShadow = true; cab.add(box2);
-    // The panel used to be rotated about its own CENTRE, which drove its trailing
-    // half straight through the cabinet body. It now turns on a real hinge line
-    // at the front-left edge, with the leaf extending away from that line, so it
-    // swings clear the way an actual door does.
-    const cabHinge = new THREE.Group();
-    cabHinge.position.set(-0.11, 0, -0.30); cabHinge.rotation.y = -0.55; cab.add(cabHinge);
-    const doorPanel = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.78, 0.58), this.equip);
-    doorPanel.geometry.translate(0, 0, 0.29);
-    doorPanel.castShadow = doorPanel.receiveShadow = true; cabHinge.add(doorPanel);
-    // handle and hinge knuckles, so the swing is legible
-    const cabHandle = new THREE.Mesh(new THREE.BoxGeometry(0.022, 0.10, 0.022), this.steel);
-    cabHandle.position.set(-0.022, 0, 0.53); cabHandle.castShadow = true; cabHinge.add(cabHandle);
-    for (const ky of [-0.30, 0.30]) {
-      const kn = new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.05, 8), this.steel);
-      kn.position.set(0, ky, 0); kn.castShadow = true; cabHinge.add(kn);
+    // returned flange all round the opening: this is the edge that makes it read
+    for (const [sy, sz, py, pz] of [[0.035, CD, CH / 2 - 0.017, 0], [0.035, CD, -CH / 2 + 0.017, 0],
+                                    [CH, 0.035, 0, CD / 2 - 0.017], [CH, 0.035, 0, -CD / 2 + 0.017]]) {
+      const f = new THREE.Mesh(new THREE.BoxGeometry(0.05, sy, sz), this.galv);
+      f.position.set(-CW / 2 - 0.024, py, pz); f.castShadow = f.receiveShadow = true; cab.add(f);
     }
-    // breaker rows behind the ajar panel
-    const brk = new THREE.InstancedMesh(new THREE.BoxGeometry(0.03, 0.05, 0.02), this.metal, 12);
-    for (let i = 0; i < 12; i++) {
-      m.compose(new V3(-0.1, 0.28 - (i % 6) * 0.09, -0.16 + Math.floor(i / 6) * 0.22), q.identity(), new V3(1, 1, 1));
+    // breaker rows on the back plane, behind the door
+    const brk = new THREE.InstancedMesh(new THREE.BoxGeometry(0.028, 0.052, 0.019), this.tech, 18);
+    for (let i = 0; i < 18; i++) {
+      m.compose(new V3(-0.085, 0.30 - (i % 9) * 0.062, -0.13 + Math.floor(i / 9) * 0.24), q.identity(), new V3(1, 1, 1));
       brk.setMatrixAt(i, m);
     }
     brk.instanceMatrix.needsUpdate = true; cab.add(brk);
-    // (the old unlit yellow square here was replaced by the painted danger
-    //  panel in detail.js, which reads far better and cannot glow on its own)
+    // DIN rails the breakers clip onto
+    for (const rz of [-0.13, 0.11]) {
+      const r2 = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.60, 0.035), this.alu);
+      r2.position.set(-0.075, 0.03, rz); cab.add(r2);
+    }
+    // the door: a shallow pressed panel with a rolled lip, on a real hinge line,
+    // opened 38 deg — far enough to show the board, shallow enough that the
+    // door's own shape stays legible.
+    const cabHinge = new THREE.Group();
+    cabHinge.position.set(-CW / 2 - 0.028, 0, -CD / 2 + 0.02);
+    cabHinge.rotation.y = -0.66; cab.add(cabHinge);
+    const leafD = CD - 0.05;
+    const doorPanel = new THREE.Mesh(new THREE.BoxGeometry(0.026, CH - 0.05, leafD), this.chipped);
+    doorPanel.geometry.translate(0, 0, leafD / 2);
+    doorPanel.castShadow = doorPanel.receiveShadow = true; cabHinge.add(doorPanel);
+    // rolled lip around the leaf: the detail that gives it thickness
+    for (const [ly, lz, sy, sz] of [[(CH - 0.05) / 2 - 0.012, leafD / 2, 0.024, leafD],
+                                    [-(CH - 0.05) / 2 + 0.012, leafD / 2, 0.024, leafD],
+                                    [0, leafD - 0.012, CH - 0.05, 0.024]]) {
+      const lp = new THREE.Mesh(new THREE.BoxGeometry(0.05, sy, sz), this.chipped);
+      lp.position.set(-0.014, ly, lz); lp.castShadow = true; cabHinge.add(lp);
+    }
+    // latch: a plastic handle in a stainless escutcheon, at hand height
+    const esc = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.012, 12), this.stainless);
+    esc.rotation.z = Math.PI / 2; esc.position.set(-0.028, 0.0, leafD - 0.07); cabHinge.add(esc);
+    const cabHandle = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.085, 0.026), this.tech);
+    cabHandle.position.set(-0.046, 0.0, leafD - 0.07); cabHandle.castShadow = true; cabHinge.add(cabHandle);
+    // hinges, both halves
+    for (const ky of [-0.38, 0.0, 0.38]) {
+      const kn = new THREE.Mesh(new THREE.CylinderGeometry(0.0125, 0.0125, 0.055, 10), this.stainless);
+      kn.position.set(0, ky, 0); kn.castShadow = true; cabHinge.add(kn);
+    }
+    // rubber gasket around the frame: the seal you would actually find here
+    const gask = new THREE.Mesh(new THREE.BoxGeometry(0.012, CH - 0.10, 0.012), this.rubber);
+    gask.position.set(-CW / 2 - 0.006, 0, -CD / 2 + 0.03); cab.add(gask);
+    // (the old 12-breaker block that used to sit here is gone: the rebuilt
+    //  cabinet above carries 18 of them on real DIN rails.)
 
     // ---- RIGHT-FRONT: a dead transfer pump ---------------------------------
     // Previously a bare cylinder with a valve wheel hovering beside it, which
@@ -1018,10 +1102,10 @@ export class Room {
     casing.rotation.x = Math.PI / 2; casing.position.set(0, 0.24, -0.06);
     casing.castShadow = casing.receiveShadow = true; pump.add(casing);
     // electric motor: ribbed barrel + terminal box, coupled to the casing
-    const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.105, 0.105, 0.30, 14), this.equip);
+    const motor = new THREE.Mesh(new THREE.CylinderGeometry(0.105, 0.105, 0.30, 14), this.alu);
     motor.rotation.x = Math.PI / 2; motor.position.set(0, 0.24, 0.20);
     motor.castShadow = motor.receiveShadow = true; pump.add(motor);
-    const fins = new THREE.InstancedMesh(new THREE.TorusGeometry(0.107, 0.007, 4, 14), this.equip, 7);
+    const fins = new THREE.InstancedMesh(new THREE.TorusGeometry(0.107, 0.007, 4, 14), this.alu, 7);
     for (let i = 0; i < 7; i++) { m.compose(new V3(1.24, 0.24, -1.05 + 0.08 + i * 0.04), q.identity(), new V3(1, 1, 1)); fins.setMatrixAt(i, m); }
     fins.instanceMatrix.needsUpdate = true; this.group.add(fins);
     const term = new THREE.Mesh(new THREE.BoxGeometry(0.10, 0.07, 0.13), this.equip);
@@ -1049,7 +1133,7 @@ export class Room {
     }
     const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.14, 8), this.steel);
     stem.rotation.z = Math.PI / 2; stem.position.set(-0.10, 0.92, -0.06); pump.add(stem);
-    const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.105, 0.015, 6, 16), this.metal);
+    const wheel = new THREE.Mesh(new THREE.TorusGeometry(0.105, 0.015, 6, 16), this.iron);
     wheel.position.set(-0.17, 0.92, -0.06); wheel.rotation.y = Math.PI / 2;
     wheel.castShadow = true; pump.add(wheel);
     for (let i = 0; i < 3; i++) {
@@ -1100,11 +1184,33 @@ export class Room {
     const stripe = new THREE.Mesh(new THREE.PlaneGeometry(1.34, 0.13), new THREE.MeshBasicMaterial({ color: 0x2b2410, toneMapped: false }));
     stripe.rotation.x = -Math.PI / 2; stripe.position.set(0, 0.006, -1.15); this.group.add(stripe);
 
-    // damp patches: low roughness so they throw the flashlight back at you
-    const wet = new THREE.MeshStandardMaterial({ color: 0x0e1014, roughness: 0.14, metalness: 0.05 });
-    for (const [px, pz, r] of [[-0.35, -0.9, 0.28], [0.75, -0.55, 0.2], [-0.9, 0.35, 0.17]]) {
-      const p = new THREE.Mesh(new THREE.CircleGeometry(r, 18), wet);
-      p.rotation.x = -Math.PI / 2; p.position.set(px, 0.004, pz); this.group.add(p);
+    // ---- damp patches -----------------------------------------------------
+    // These were three PERFECT CIRCLES lying on the slab with nothing above them,
+    // which is exactly why they read as unexplained discs instead of as water.
+    // Two changes: an irregular outline, and each one placed directly beneath a
+    // pipe coupling, so there is a visible reason for the floor to be wet.
+    const wet = new THREE.MeshStandardMaterial({ color: 0x0e1014, roughness: 0.16, metalness: 0.05 });
+    const puddle = (r) => {
+      const N = 26, pos = [0, 0, 0], idx = [];
+      for (let i = 0; i < N; i++) {
+        const rr = r * (0.62 + 0.38 * Math.abs(Math.sin(i * 2.7) * Math.cos(i * 1.31)));
+        const a = (i / N) * Math.PI * 2;
+        pos.push(Math.cos(a) * rr, 0, Math.sin(a) * rr);
+        idx.push(0, 1 + i, 1 + ((i + 1) % N));
+      }
+      const gg = new THREE.BufferGeometry();
+      gg.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+      gg.setIndex(idx); gg.computeVertexNormals();
+      return gg;
+    };
+    for (const [px, pz, r] of [[-1.12, -0.62, 0.26], [1.08, 0.30, 0.19]]) {
+      const pd = new THREE.Mesh(puddle(r), wet);
+      pd.position.set(px, 0.004, pz); pd.receiveShadow = true; this.group.add(pd);
+      const joint = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.058, 0.07, 10), this.rust);
+      joint.rotation.x = Math.PI / 2; joint.position.set(px, h - 0.13, pz);
+      joint.castShadow = true; this.group.add(joint);
+      const drip = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.004, 0.16, 6), wet);
+      drip.position.set(px, h - 0.24, pz); this.group.add(drip);
     }
   }
 

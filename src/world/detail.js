@@ -410,13 +410,14 @@ export function addDoorDetail(room) {
   wire.instanceMatrix.needsUpdate = true; pivot.add(wire);
 
   // kick plate + hinges + push bar: hardware sells it
-  const kick = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.22, 0.014), room.metal);
+  // aluminium kick plate: a different metal from the leaf it is screwed to
+  const kick = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.22, 0.014), room.alu);
   kick.position.set(0.51, 0.17, 0.04); kick.castShadow = true; pivot.add(kick);
   for (const hy of [0.3, 1.02, 1.76]) {
     const hinge = new THREE.Mesh(new THREE.CylinderGeometry(0.023, 0.023, 0.11, 8), room.metal);
     hinge.position.set(0.015, hy, 0); hinge.castShadow = true; pivot.add(hinge);
   }
-  const bar = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.045, 0.045), room.metal);
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.045, 0.045), room.stainless);
   bar.position.set(0.5, 0.98, 0.06); bar.castShadow = true; pivot.add(bar);
   for (const bx of [0.2, 0.8]) {
     const st = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.06), room.metal);

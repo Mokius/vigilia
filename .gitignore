@@ -5,3 +5,5 @@ node_modules/
 assets/mixamo/raw/*.fbx
 assets/mixamo/raw/anims/*.fbx
 assets/models/*.glb
+# Mixamo source drop: 120 MB of FBX. The built GLBs in assets/models/ are what ships.
+assets/mixamo/raw/

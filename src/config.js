@@ -53,7 +53,9 @@ export const CONFIG = {
 
   // Battery pickups: physical objects, aim to collect, finite.
   pickups: {
-    count: 6,
+    // At most TWO cells exist at any moment: enough to offer a choice, few enough
+    // that the room still feels short of power. Each runs its own respawn clock.
+    live: 2,
     dwell: 1.4,                // seconds of continuous aim to collect
     amount: 28,                // % restored (never a full charge)
     litThreshold: 0.35,
@@ -91,8 +93,7 @@ export const CONFIG = {
   models: {
     probeTimeoutMs: 9000,
     romero:   ['assets/models/romero.glb'],
-    parasite: ['assets/models/parasite.glb'],
-    drake:    ['assets/models/drake.glb'],
+    romera:   ['assets/models/romera.glb'],
     // Licence-clean CC0/Mixamo-derived fallbacks served with CORS. Verified.
     fallbackHumanoid: [
       'https://cdn.jsdelivr.net/gh/mrdoob/three.js@r160/examples/models/gltf/Xbot.glb',

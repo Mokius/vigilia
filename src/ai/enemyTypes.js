@@ -4,42 +4,40 @@
 // (drop the real Mixamo GLB in assets/models/ and it is used automatically).
 // =============================================================================
 
+// TWO characters, five ways in. There were three entries here when there were no
+// real models and the differences were notional; now that Romero and Romera are
+// actual meshes with actual weight, the cast is what we have — and each one gets
+// the routes and the tempo that suit its build rather than a third being faked
+// from a shared asset.
 export const ENEMY_TYPES = [
   {
+    // The heavy. Tall, slow, long stares — takes the upright approaches.
     id: 'romero', name: 'ROMERO', modelKey: 'romero',
-    height: 1.85,
-    routes: ['door', 'corridor'],
+    height: 1.86,
+    routes: ['door', 'corridor', 'window'],
     crossRoute: 'corridorCross',
-    holdMin: 1.5, holdMax: 3.4,     // stands motionless, watching
-    dashMin: 0.12, dashMax: 0.19,   // then crosses to the next station in a blink
+    holdMin: 1.6, holdMax: 3.4,     // stands motionless, watching
+    dashMin: 0.13, dashMax: 0.20,   // then crosses to the next station in a blink
     banishTime: 0.55,
     cueInterval: [3.0, 5.2], cues: ['footstep', 'knock'],
     eyeColor: 0xbfe0ff, weight: 3, minNight: 1,
     scream: 'shriek', face: 'gaunt',
+    jumpscareClip: 'jumpscare',      // zombie_neck_bite, trimmed
   },
   {
-    id: 'parasite', name: 'PARÁSITO', modelKey: 'parasite',
-    height: 1.50,
-    routes: ['vent', 'hatch'],
+    // The crawler. Lighter and quicker, and she comes up through the floor and
+    // out of the duct, where the crawl takes belong.
+    id: 'romera', name: 'ROMERA', modelKey: 'romera',
+    height: 1.68,
+    routes: ['vent', 'hatch', 'door'],
     crossRoute: null,
-    holdMin: 0.9, holdMax: 2.2,     // the crawler barely waits
-    dashMin: 0.10, dashMax: 0.15,
-    banishTime: 0.70,
+    holdMin: 0.9, holdMax: 2.1,     // barely waits
+    dashMin: 0.10, dashMax: 0.16,
+    banishTime: 0.60,
     cueInterval: [2.4, 4.0], cues: ['scrape', 'breath'],
-    eyeColor: 0xffd27a, weight: 2, minNight: 1,
+    eyeColor: 0xffd27a, weight: 3, minNight: 1,
     scream: 'gurgle', face: 'maw',
-  },
-  {
-    id: 'drake', name: 'DRAKE', modelKey: 'drake',
-    height: 1.90,
-    routes: ['window', 'corridor'],
-    crossRoute: 'corridorCross',
-    holdMin: 2.0, holdMax: 4.2,     // heavy: long stares, then a brutal lunge
-    dashMin: 0.14, dashMax: 0.20,
-    banishTime: 0.90,
-    cueInterval: [3.4, 6.0], cues: ['knock', 'whisper'],
-    eyeColor: 0xff5a5a, weight: 2, minNight: 2,
-    scream: 'roar', face: 'face',
+    jumpscareClip: 'jumpscareB',     // zombie_biting_2: a different lunge
   },
 ];
 
