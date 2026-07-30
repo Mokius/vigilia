@@ -364,7 +364,7 @@ export function addServices(room) {
   }
   rung.instanceMatrix.needsUpdate = true; tray.add(rung);
   for (let i = 0; i < 3; i++) {
-    const cb = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, CONFIG.room.D * 0.98, 6), room.rust);
+    const cb = new THREE.Mesh(new THREE.CylinderGeometry(0.016, 0.016, CONFIG.room.D * 0.98, 6), room.tech);
     cb.rotation.x = Math.PI / 2;
     cb.position.set(-0.06 + i * 0.055, -0.035 - i * 0.006, 0);
     tray.add(cb);
@@ -457,7 +457,7 @@ export function addDoorDetail(room) {
 
   // kick plate + hinges + push bar: hardware sells it
   // aluminium kick plate: a different metal from the leaf it is screwed to
-  const kick = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.22, 0.014), room.alu);
+  const kick = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.22, 0.014), room.tread);
   kick.position.set(0.51, 0.17, 0.04); kick.castShadow = true; pivot.add(kick);
   for (const hy of [0.3, 1.02, 1.76]) {
     const hinge = new THREE.Mesh(new THREE.CylinderGeometry(0.023, 0.023, 0.11, 8), room.stainless);

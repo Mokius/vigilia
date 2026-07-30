@@ -134,8 +134,12 @@ export class Room {
     // Heavier and cooler than the generic metal, and far less shiny than the
     // handles, so a frame never reads as something you would touch.
     // target 0x4a5158 over paintedSheet -> 255*74/105, 255*81/104, 255*88/97
+    // Frames sit 1.0-1.5 m from the lamp, so irradiance is ~27 and the albedo has
+    // to come down to about 0.035 linear to stay off the ceiling. 0xb4c7e7 over a
+    // map mean of 105 was landing at 74-95/255 and glinting; 53/255 does not.
+    //   target 53/255 over 105  ->  255 * 53 / 105 = 129, biased cool
     const frameSteel = this._mat(tex.paintedSheet, 1.05, 1.05,
-      { color: 0xb4c7e7, metalness: 0.16, roughness: 0.88, normalScale: new THREE.Vector2(1.1, 1.1) });
+      { color: 0x63697a, metalness: 0.06, roughness: 1.0, normalScale: new THREE.Vector2(1.1, 1.1) });
 
     // ---- GALVANISED DUCTWORK ----------------------------------------------
     // Everything that carries air or cable: the duct collar and louvre, the cable
@@ -160,7 +164,7 @@ export class Room {
     // so a box reads as a box and not as structure.
     // target 0x33383d over paintedSheet
     const boxPaint = this._mat(tex.paintedSheet, 1.35, 1.35,
-      { color: 0x7c89a0, metalness: 0.14, roughness: 0.89 });
+      { color: 0x5c6675, metalness: 0.10, roughness: 1.0 });
 
     // ---- INSTRUMENT BAKELITE ----------------------------------------------
     // Housings for things with a dial or a lens: the charge meter, the clock body,
@@ -169,10 +173,55 @@ export class Room {
     // target 0x24272b over techPlastic
     // Bakelite is the one thing here that may stay slightly glossy: it is dark
     // enough (target 0x24272b) that even a full highlight lands mid grey.
+    // Bakelite: the clock body, the meter housing, the beacon plate. Dead matte and
+    // very dark — a dial housing that catches a highlight reads as chrome.
     const instrument = this._mat(tex.techPlastic, 1.5, 1.5,
-      { color: 0x838a92, metalness: 0.03, roughness: 0.62, normalScale: new THREE.Vector2(0.4, 0.4) });
+      { color: 0x5e646c, metalness: 0.0, roughness: 1.0, normalScale: new THREE.Vector2(0.4, 0.4) });
 
-    Object.assign(this, { frameSteel, duct, boxPaint, instrument });
+    // ---- AND THE REST, so nothing has to borrow ------------------------
+    // Most of these come out at colour white: their maps are already dark enough
+    // (greasyMetal mean 26, castIron 38, tiledConcrete 52) that the map's own
+    // value IS the target, and a multiplier could only make them darker.
+    //
+    // pipePaint: the ceiling runs. They carry painted colour-code bands, so the
+    // pipe under them is painted too — not the bare rust the corridor runs are.
+    const pipePaint = this._mat(tex.paintedSheet, 0.9, 0.9,
+      { color: 0x6e7784, metalness: 0.10, roughness: 1.0 });
+    // tubeFrame: drawn tube used for FURNITURE — chair legs, shelf uprights, bench
+    // legs. Distinct from the duct (which is folded sheet) and from the frames.
+    const tubeFrame = this._mat(tex.galvanised, 0.8, 0.8,
+      { color: 0x5b5f64, metalness: 0.14, roughness: 1.0, normalScale: new THREE.Vector2(0.5, 0.5) });
+    // formed: concrete cast against shuttering. Kerbs, skirtings, the window
+    // surround, the pump plinth. Not rust — these are all masonry.
+    // Rendered at colour white this read as polished granite rather than concrete:
+    // tiledConcrete's mean is only 52/255 but its contrast is high, and the bright
+    // half of that range saturates at a metre. Halved.
+    const formed = this._mat(tex.tiledConcrete, 2.2, 2.2,
+      { color: 0x878787, metalness: 0.0, roughness: 1.0, normalScale: new THREE.Vector2(1.6, 1.6) });
+    // greasy: the pump and its pipework. Oil-streaked, and the streaks are in the
+    // map rather than in the tint.
+    const greasy = this._mat(tex.greasyMetal, 1.2, 1.2,
+      { color: 0xffffff, metalness: 0.16, roughness: 1.0 });
+    // dryMech: mechanism that has NOT been oiled — the valve body, bolt heads,
+    // brackets. Dusty cast surface, no lubricated sheen.
+    const dryMech = this._mat(tex.castIron, 1.5, 1.5,
+      { color: 0xffffff, metalness: 0.14, roughness: 1.0 });
+    // plywood and structural timber: two different woods, grain running crosswise
+    // to each other so a bench top and a pallet never look like the same board.
+    const plywood = this._mat(tex.plywood, 1.2, 1.2,
+      { color: 0xa89880, metalness: 0.0, roughness: 1.0 });
+    const bearer = this._mat(tex.timber, 0.8, 0.8,
+      { color: 0xffffff, metalness: 0.0, roughness: 1.0, normalScale: new THREE.Vector2(1.6, 1.6) });
+    // tread: raised-pattern plate. Walkway panels and the grating in the corridor.
+    const tread = this._mat(tex.diamondPlate, 1.4, 1.4,
+      { color: 0x767c83, metalness: 0.12, roughness: 1.0, normalScale: new THREE.Vector2(1.5, 1.5) });
+    // soot: what has lived under the failing beacon or in the corridor draught.
+    const soot = this._mat(tex.sootedSteel, 1.25, 1.25,
+      { color: 0xffffff, metalness: 0.10, roughness: 1.0 });
+    Object.assign(this, {
+      frameSteel, duct, boxPaint, instrument,
+      pipePaint, tubeFrame, formed, greasy, dryMech, plywood, bearer, tread, soot,
+    });
     const rust = this._mat(tex.rust, 1, 1, { color: 0x7a4f30, metalness: 0.12, roughness: 0.97 });
     // painted steel: furniture, lockers, shelving
     const painted = this._mat(tex.metal, 1.6, 1.6, { color: 0x3d4a4e, metalness: 0.18, roughness: 0.8 });
@@ -452,12 +501,12 @@ export class Room {
       bar2.rotation.z = Math.PI / 2; bar2.position.set(-opW / 2 + 0.17, yy, 0); bar2.castShadow = true; railGrp.add(bar2);
     }
     for (const px of [-opW / 2 + 0.035, -opW / 2 + 0.305]) {
-      const po = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.95, 8), this.metal);
+      const po = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 0.95, 8), this.tubeFrame);
       po.position.set(px, 0.475, 0); po.castShadow = true; railGrp.add(po);
     }
     // a toe board at the bottom: without it the two rails and two posts read as
     // an abstract white rectangle hanging in the corridor rather than a guard
-    const toe = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.10, 0.02), this.rust);
+    const toe = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.10, 0.02), this.tread);
     toe.position.set(-opW / 2 + 0.17, 0.09, 0); toe.castShadow = true; railGrp.add(toe);
     // a stacked pallet and a drum against the right wall of the hall
     const pallet = new THREE.Group(); pallet.position.set(opW / 2 - 0.17, 0.06, -2.55); grp.add(pallet);
@@ -476,7 +525,7 @@ export class Room {
       rib.rotation.x = Math.PI / 2; rib.position.set(opW / 2 - 0.17, ry2, -1.10); grp.add(rib);
     }
     // floor grating panel further down: breaks the flat floor of the hall
-    const grate = new THREE.InstancedMesh(new THREE.BoxGeometry(0.62, 0.012, 0.03), this.iron, 9);
+    const grate = new THREE.InstancedMesh(new THREE.BoxGeometry(0.62, 0.012, 0.03), this.tread, 9);
     for (let k = 0; k < 9; k++) { m2.compose(new V3(0, 0.012, -1.5 - k * 0.06), q2.identity(), new V3(1, 1, 1)); grate.setMatrixAt(k, m2); }
     grate.instanceMatrix.needsUpdate = true; grp.add(grate);
 
@@ -523,7 +572,7 @@ export class Room {
       const stile = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.86, 0.018), this.enamel);
       stile.position.set(rx, 0.02, -0.038); stile.castShadow = true; pivot.add(stile);
     }
-    const closer = new THREE.Mesh(new THREE.BoxGeometry(0.20, 0.06, 0.06), this.metal);
+    const closer = new THREE.Mesh(new THREE.BoxGeometry(0.20, 0.06, 0.06), this.dryMech);
     closer.position.set(0.22, 0.94, -0.06); closer.castShadow = true; pivot.add(closer);
     this.doorPivot = pivot;
     pivot.rotation.y = 0;              // shut in its frame at the start of a night
@@ -550,16 +599,13 @@ export class Room {
     // which is why it read both as a different substance from the door and as
     // something polished.
     const steel = this.frameSteel;
-    const lintelMat = new THREE.MeshStandardMaterial({
-      color: 0x6d6a63, roughness: 0.98, metalness: 0.0,
-      map: this.rust.map, normalMap: this.rust.normalMap,
-      normalScale: new THREE.Vector2(2.2, 2.2),
-    });
-    const sillMat = new THREE.MeshStandardMaterial({
-      color: 0x55524c, roughness: 0.88, metalness: 0.35,
-      map: this.rust.map, normalMap: this.rust.normalMap,
-      normalScale: new THREE.Vector2(2.8, 2.8),
-    });
+    // Cast concrete, not tinted rust. The lintel, the pilasters and the pipes
+    // above them were all sharing one pattern where they meet.
+    const lintelMat = this.formed;
+    // The sill is the one part something climbs over, so it is the cast-iron
+    // nosing you would actually fit there — and at metalness 0.35 the old one was
+    // the brightest thing on the wall.
+    const sillMat = this.dryMech;
     this._winSteel = steel;
 
     // Built from the opening's real dimensions rather than hard-coded numbers,
@@ -611,11 +657,11 @@ export class Room {
     const far = new THREE.Mesh(new THREE.PlaneGeometry(O.w * 1.3, O.h * 1.3), bulkMat);
     far.position.set(0, 0, -DEPTH_W); far.rotation.y = Math.PI; far.receiveShadow = true; grp.add(far);
     // bolt line and a duct crossing it, so there is scale and occlusion in there
-    const rv = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.014, 0.016, 0.02, 6), this.metal, 8);
+    const rv = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.014, 0.016, 0.02, 6), this.dryMech, 8);
     const mV = new THREE.Matrix4(), qV = new THREE.Quaternion().setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0));
     for (let i = 0; i < 8; i++) { mV.compose(new V3(-O.w * 0.42 + i * (O.w * 0.12), O.h * 0.34, -0.30), qV, new V3(1, 1, 1)); rv.setMatrixAt(i, mV); }
     rv.instanceMatrix.needsUpdate = true; grp.add(rv);
-    const crossPipe = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, O.w * 1.5, 10), this.rust);
+    const crossPipe = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, O.w * 1.5, 10), this.greasy);
     crossPipe.rotation.z = Math.PI / 2; crossPipe.position.set(0, -O.h * 0.22, -0.42);
     crossPipe.castShadow = true; grp.add(crossPipe);
 
@@ -954,12 +1000,23 @@ export class Room {
     x.fillStyle = 'rgba(60,50,35,0.26)'; x.beginPath(); x.arc(C * 0.7, C * 1.25, 110, 0, 7); x.fill();
     x.fillStyle = 'rgba(40,34,24,0.18)'; x.beginPath(); x.arc(C * 1.35, C * 0.7, 78, 0, 7); x.fill();
     const tx = new THREE.CanvasTexture(cv); tx.colorSpace = THREE.SRGBColorSpace;
-    const face = new THREE.Mesh(new THREE.CircleGeometry(0.17, 32), new THREE.MeshStandardMaterial({ map: tx, roughness: 0.7 }));
+    // A clock face is painted pale on purpose, so its map is cream — and with no
+    // colour multiplier that albedo went through untouched and the dial saturated
+    // to flat white the moment the beam crossed it. You could not read the time,
+    // which is the one thing this object exists to tell you. Same halving that
+    // paintedPlate applies, for the same reason.
+    const face = new THREE.Mesh(new THREE.CircleGeometry(0.17, 32),
+      new THREE.MeshStandardMaterial({ map: tx, color: 0x3a3a3a, roughness: 1.0, metalness: 0.0 }));
+    // 0x5f5f5f still came back white, and the arithmetic said it should not:
+    // radiance 0.46, well under 1. What finishes it off is the BLOOM pass — the
+    // dial is the brightest thing in frame, so bloom spreads it and the sum
+    // clips. Anything that is both pale and the local maximum needs headroom for
+    // that, not just for its own exposure.
     face.position.z = 0.035; grp.add(face);
     const rim = new THREE.Mesh(new THREE.TorusGeometry(0.175, 0.016, 8, 32), this.instrument); rim.position.z = 0.035; grp.add(rim);
     const body = new THREE.Mesh(new THREE.CylinderGeometry(0.175, 0.175, 0.06, 24), this.instrument);
     body.rotation.x = Math.PI / 2; grp.add(body);
-    const handMat = new THREE.MeshStandardMaterial({ color: 0x14110e, roughness: 0.5 });
+    const handMat = new THREE.MeshStandardMaterial({ color: 0x14110e, roughness: 1.0, metalness: 0.0 });
     const mk = (len, wid) => { const m = new THREE.Mesh(new THREE.BoxGeometry(wid, len, 0.008), handMat); m.geometry.translate(0, len / 2, 0); m.position.z = 0.045; grp.add(m); return m; };
     this.clock = { grp, hour: mk(0.085, 0.017), minute: mk(0.135, 0.011) };
     this.setClock(0);
@@ -970,7 +1027,8 @@ export class Room {
     const m = new THREE.Matrix4(), q = new THREE.Quaternion();
 
     // ceiling pipes (they slice the beam into moving shadow bars)
-    const pipes = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.05, 0.05, CONFIG.room.D, 10), this.rust, 3);
+    // painted, because they carry painted colour-code bands (see addServices)
+    const pipes = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.05, 0.05, CONFIG.room.D, 10), this.pipePaint, 3);
     pipes.castShadow = true;
     [-1.15, 1.05, 1.25].forEach((x, i) => { m.compose(new V3(x, h - 0.13, 0), q.setFromEuler(new THREE.Euler(Math.PI / 2, 0, 0)), new V3(1, 1, 1)); pipes.setMatrixAt(i, m); });
     pipes.instanceMatrix.needsUpdate = true; this.group.add(pipes);
@@ -983,11 +1041,11 @@ export class Room {
     for (let i = 0; i < 3; i++) {
       // timber shelves in a steel frame: the unit no longer shares a look with
       // the duct louvre two metres away, which is what made them read as one thing
-      const s = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.03, 0.55), this.timber);
+      const s = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.03, 0.55), this.bearer);
       s.position.set(0, 0.35 + i * 0.3, 0); s.castShadow = s.receiveShadow = true; shelf.add(s);
     }
     for (const sz of [-0.25, 0.25]) {
-      const p = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.98, 0.04), this.galv);
+      const p = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.98, 0.04), this.tubeFrame);
       p.position.set(0, 0.49, sz); p.castShadow = true; shelf.add(p);
     }
     // stock on the shelves, so it is storage rather than empty planks
@@ -1033,7 +1091,7 @@ export class Room {
       if (!inVent) pushBolt(x, 0.16, -d + 0.012, Math.PI / 2, 0);
       pushBolt(x, 2.28, -d + 0.012, Math.PI / 2, 0);
     }
-    const boltMesh = new THREE.InstancedMesh(boltGeo, this.metal, bolts.length);
+    const boltMesh = new THREE.InstancedMesh(boltGeo, this.dryMech, bolts.length);
     boltMesh.castShadow = true; boltMesh.receiveShadow = true;
     bolts.forEach(([x, y, z, rx, ry], i) => {
       m.compose(new V3(x, y, z), q.setFromEuler(new THREE.Euler(rx, ry, 0)), new V3(1, 1, 1));
@@ -1054,13 +1112,13 @@ export class Room {
     }
     seamRuns.forEach(([x, y, z0, z1]) => {
       const len = z1 - z0; if (len < 0.05) return;
-      const sm = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.022, len), this.rust);
+      const sm = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.022, len), this.dryMech);
       sm.position.set(x, y, (z0 + z1) / 2); sm.receiveShadow = true; this.group.add(sm);
     });
 
     // pipe brackets clamping the ceiling runs
     const brGeo = new THREE.TorusGeometry(0.062, 0.012, 5, 10, Math.PI);
-    const brackets = new THREE.InstancedMesh(brGeo, this.metal, 9);
+    const brackets = new THREE.InstancedMesh(brGeo, this.dryMech, 9);
     brackets.castShadow = true;
     let bi = 0;
     for (const px of [-1.15, 1.05, 1.25]) for (const pz of [-1.1, 0, 1.1]) {
@@ -1070,7 +1128,7 @@ export class Room {
     brackets.instanceMatrix.needsUpdate = true; this.group.add(brackets);
 
     // conduit running down the corner + a junction box (reads as a real build)
-    const conduit = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 1.9, 8), this.metal);
+    const conduit = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 1.9, 8), this.duct);
     conduit.position.set(-w + 0.06, 1.2, -d + 0.09); conduit.castShadow = true; this.group.add(conduit);
     const jbox = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.18, 0.08), this.boxPaint);
     jbox.position.set(-w + 0.07, 0.5, -d + 0.1); jbox.castShadow = true; this.group.add(jbox);
@@ -1086,7 +1144,7 @@ export class Room {
     ];
     runs.forEach(([x, z0, z1]) => {
       const len = z1 - z0; if (len < 0.05) return;
-      const sk = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.09, len), this.rust);
+      const sk = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.09, len), this.formed);
       sk.position.set(x, 0.045, (z0 + z1) / 2); sk.receiveShadow = true; this.group.add(sk);
     });
 
@@ -1100,19 +1158,19 @@ export class Room {
     // the back wall and made it overlap the old desk — the two pieces of
     // furniture were inside each other. There is now one work surface, not two.
     const bench = new THREE.Group(); bench.position.set(-0.42, 0, 1.21); this.group.add(bench);
-    const top = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.06, 0.52), this.timber);
+    const top = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.06, 0.52), this.plywood);
     top.position.set(0, 0.88, 0); top.castShadow = top.receiveShadow = true; bench.add(top);
     // an apron under the front edge, so it is joinery and not a floating slab
     const apron = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.09, 0.03), this.painted);
     apron.position.set(0, 0.80, -0.245); apron.castShadow = true; bench.add(apron);
     for (const [bx, bz] of [[-0.42, -0.21], [0.42, -0.21], [-0.42, 0.21], [0.42, 0.21]]) {
-      const l = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.88, 0.06), this.galv);
+      const l = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.88, 0.06), this.tubeFrame);
       l.position.set(bx, 0.44, bz); l.castShadow = true; bench.add(l);
     }
     // lower stock shelf between the legs
-    const under = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.025, 0.42), this.metal);
+    const under = new THREE.Mesh(new THREE.BoxGeometry(0.88, 0.025, 0.42), this.tubeFrame);
     under.position.set(0, 0.24, 0); under.castShadow = under.receiveShadow = true; bench.add(under);
-    const backboard = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.5, 0.035), this.rust);
+    const backboard = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.5, 0.035), this.bearer);
     backboard.position.set(0, 1.16, 0.24); backboard.castShadow = true; bench.add(backboard);
     // tools hanging on the backboard: instanced, one draw call
     const tools = new THREE.InstancedMesh(new THREE.BoxGeometry(0.03, 0.22, 0.03), this.stainless, 5);
@@ -1123,7 +1181,7 @@ export class Room {
       tools.setMatrixAt(i, m);
     }
     tools.instanceMatrix.needsUpdate = true; this.group.add(tools);
-    const vice = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.13, 0.14), this.metal);
+    const vice = new THREE.Mesh(new THREE.BoxGeometry(0.16, 0.13, 0.14), this.dryMech);
     vice.position.set(0.34, 0.97, -0.12); vice.castShadow = true; bench.add(vice);
 
     // ---- the watchman's chair ------------------------------------------------
@@ -1133,7 +1191,7 @@ export class Room {
     const chair = new THREE.Group(); chair.position.set(-0.42, 0, 0.86); chair.rotation.y = 0.22; this.group.add(chair);
     // tubular galvanised frame, aged ply seat, rubber feet: three substances,
     // where before the whole chair was the one generic metal.
-    const seatMat = this.timber, frameMat = this.galv;
+    const seatMat = this.plywood, frameMat = this.tubeFrame;
     const seat = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.035, 0.38), seatMat);
     seat.position.y = 0.44; seat.castShadow = seat.receiveShadow = true; chair.add(seat);
     // slight lip at the front of the pan
@@ -1172,12 +1230,12 @@ export class Room {
     const CW = 0.24, CH = 1.06, CD = 0.60;         // wall-depth, height, along-wall
     const cab = new THREE.Group(); cab.position.set(w - CW / 2 - 0.01, 1.02, 1.02); this.group.add(cab);
     // the enclosure: galvanised sheet, recessed back so the door has a rebate
-    const box2 = new THREE.Mesh(new THREE.BoxGeometry(CW, CH, CD), this.galv);
+    const box2 = new THREE.Mesh(new THREE.BoxGeometry(CW, CH, CD), this.boxPaint);
     box2.castShadow = box2.receiveShadow = true; cab.add(box2);
     // returned flange all round the opening: this is the edge that makes it read
     for (const [sy, sz, py, pz] of [[0.035, CD, CH / 2 - 0.017, 0], [0.035, CD, -CH / 2 + 0.017, 0],
                                     [CH, 0.035, 0, CD / 2 - 0.017], [CH, 0.035, 0, -CD / 2 + 0.017]]) {
-      const f = new THREE.Mesh(new THREE.BoxGeometry(0.05, sy, sz), this.galv);
+      const f = new THREE.Mesh(new THREE.BoxGeometry(0.05, sy, sz), this.boxPaint);
       f.position.set(-CW / 2 - 0.024, py, pz); f.castShadow = f.receiveShadow = true; cab.add(f);
     }
     // breaker rows on the back plane, behind the door
@@ -1259,7 +1317,7 @@ export class Room {
       .forEach(([bx, bz], i) => { m.compose(new V3(1.24 + bx, 0.13, -1.05 + bz), q.identity(), new V3(1, 1, 1)); hd.setMatrixAt(i, m); });
     hd.instanceMatrix.needsUpdate = true; this.group.add(hd);
     // volute casing, lying on its axis the way a real pump does
-    const casing = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.17, 14), this.equip);
+    const casing = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.17, 14), this.greasy);
     casing.rotation.x = Math.PI / 2; casing.position.set(0, 0.24, -0.06);
     casing.castShadow = casing.receiveShadow = true; pump.add(casing);
     // electric motor: ribbed barrel + terminal box, coupled to the casing
@@ -1274,22 +1332,22 @@ export class Room {
     const coupling = new THREE.Mesh(new THREE.CylinderGeometry(0.055, 0.055, 0.07, 10), this.steel);
     coupling.rotation.x = Math.PI / 2; coupling.position.set(0, 0.24, 0.035); pump.add(coupling);
     // suction: down through the slab
-    const suction = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.052, 0.20, 10), this.rust);
+    const suction = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.052, 0.20, 10), this.greasy);
     suction.position.set(0, 0.10, -0.145); pump.add(suction);
-    const sBend = new THREE.Mesh(new THREE.TorusGeometry(0.055, 0.052, 8, 10, Math.PI / 2), this.rust);
+    const sBend = new THREE.Mesh(new THREE.TorusGeometry(0.055, 0.052, 8, 10, Math.PI / 2), this.greasy);
     sBend.rotation.set(0, Math.PI / 2, Math.PI / 2); sBend.position.set(0, 0.20, -0.145); pump.add(sBend);
     // discharge: up the wall, through the valve, then an elbow INTO the wall
-    const riser = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.052, 1.62, 10), this.rust);
+    const riser = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.052, 1.62, 10), this.greasy);
     riser.position.set(0, 1.14, -0.06); riser.castShadow = true; pump.add(riser);
-    const elbow = new THREE.Mesh(new THREE.TorusGeometry(0.075, 0.052, 8, 12, Math.PI / 2), this.rust);
+    const elbow = new THREE.Mesh(new THREE.TorusGeometry(0.075, 0.052, 8, 12, Math.PI / 2), this.greasy);
     elbow.rotation.set(0, 0, 0); elbow.position.set(0.075, 1.95, -0.06); elbow.castShadow = true; pump.add(elbow);
-    const stub = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.052, 0.20, 10), this.rust);
+    const stub = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.052, 0.20, 10), this.greasy);
     stub.rotation.z = Math.PI / 2; stub.position.set(0.175, 2.025, -0.06); pump.add(stub);
     // the isolating valve the wheel actually belongs to
-    const vBody = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.13, 12), this.equip);
+    const vBody = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.13, 12), this.dryMech);
     vBody.position.set(0, 0.92, -0.06); vBody.castShadow = true; pump.add(vBody);
     for (const fy of [0.855, 0.985]) {
-      const fl2 = new THREE.Mesh(new THREE.CylinderGeometry(0.082, 0.082, 0.022, 12), this.metal);
+      const fl2 = new THREE.Mesh(new THREE.CylinderGeometry(0.082, 0.082, 0.022, 12), this.dryMech);
       fl2.position.set(0, fy, -0.06); pump.add(fl2);
     }
     const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.014, 0.014, 0.14, 8), this.steel);
@@ -1298,14 +1356,14 @@ export class Room {
     wheel.position.set(-0.17, 0.92, -0.06); wheel.rotation.y = Math.PI / 2;
     wheel.castShadow = true; pump.add(wheel);
     for (let i = 0; i < 3; i++) {
-      const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.013, 0.20, 0.013), this.metal);
+      const spoke = new THREE.Mesh(new THREE.BoxGeometry(0.013, 0.20, 0.013), this.dryMech);
       spoke.position.set(-0.17, 0.92, -0.06); spoke.rotation.x = i * 1.047;
       spoke.castShadow = true; pump.add(spoke);
     }
     // pressure gauge on the discharge, above the valve
     const gTap = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.011, 0.07, 6), this.steel);
     gTap.rotation.z = Math.PI / 2; gTap.position.set(-0.085, 1.22, -0.06); pump.add(gTap);
-    const gBody = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.022, 14), this.metal);
+    const gBody = new THREE.Mesh(new THREE.CylinderGeometry(0.042, 0.042, 0.022, 14), this.instrument);
     gBody.rotation.z = Math.PI / 2; gBody.position.set(-0.13, 1.22, -0.06); gBody.castShadow = true; pump.add(gBody);
     const gFace = new THREE.Mesh(new THREE.CircleGeometry(0.036, 16),
       new THREE.MeshStandardMaterial({ color: 0x6f6d66, roughness: 0.72 }));
@@ -1367,7 +1425,7 @@ export class Room {
     for (const [px, pz, r] of [[-1.12, -0.62, 0.26], [1.08, 0.30, 0.19]]) {
       const pd = new THREE.Mesh(puddle(r), wet);
       pd.position.set(px, 0.004, pz); pd.receiveShadow = true; this.group.add(pd);
-      const joint = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.058, 0.07, 10), this.rust);
+      const joint = new THREE.Mesh(new THREE.CylinderGeometry(0.058, 0.058, 0.07, 10), this.pipePaint);
       joint.rotation.x = Math.PI / 2; joint.position.set(px, h - 0.13, pz);
       joint.castShadow = true; this.group.add(joint);
       const drip = new THREE.Mesh(new THREE.CylinderGeometry(0.011, 0.004, 0.16, 6), wet);

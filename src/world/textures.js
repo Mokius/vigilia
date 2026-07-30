@@ -267,9 +267,11 @@ function surface(size, opts) {
 // Measured: a frame asking for 0.88 was rendering at 0.297 and blowing out to
 // white under the torch.
 //
-// The maps that stand for MATTE industrial surfaces therefore sit at 0.84-0.90
-// here. The two that are genuinely glossy (brushedAlu, techPlastic) are left low
-// on purpose — for those the answer is a dark albedo, not a rougher map.
+// The maps that stand for MATTE industrial surfaces therefore sit at 0.82-0.90
+// here. techPlastic started at 0.28 on the argument that moulded plastic is
+// genuinely glossy — true of a new moulding, and worth nothing here, because the
+// clock body built on it caught the torch like a lens. Only brushedAlu is still
+// left low, and the one material using it keeps its albedo on the floor.
 // ---------------------------------------------------------------------------
 let _cache = null;
 export function buildTextures() {
@@ -366,7 +368,7 @@ export function buildTextures() {
   // low amplitude (small normalScale) so it stays flatter than brushedAlu.
   const techPlastic = surface(256, {
     baseFreq: 2, oct: 3, tint: [112, 114, 120], tintVar: 10,
-    roughBase: 0.28, roughVar: 0.1, normalScale: 1.4, seed: 109,
+    roughBase: 0.82, roughVar: 0.10, normalScale: 1.4, seed: 109,
     aniso: { x: 4, y: 0.4 },
   });
   // Diamond plate: two ribs descriptors crossed x/y with a square profile
