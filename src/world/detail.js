@@ -429,8 +429,10 @@ export function addDoorDetail(room) {
   // wire-glass vision panel: 26 cm across the leaf, 4 cm through it
   const vision = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.34, 0.042),
     new THREE.MeshPhysicalMaterial({
+      // see crt.js: transmission costs a whole extra pass per viewport, and wire
+      // glass is translucent rather than clear anyway
       color: 0x0b0f12, roughness: 0.34, metalness: 0,
-      transmission: 0.42, transparent: true, opacity: 0.58, ior: 1.4,
+      transparent: true, opacity: 0.66, ior: 1.4, specularIntensity: 0.9,
     }));
   vision.position.set(0.62, 1.30, 0.006); pivot.add(vision);
   // a returned frame around the glass, so it is set INTO the leaf

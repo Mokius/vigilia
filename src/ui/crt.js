@@ -105,7 +105,11 @@ export class CRTConsole {
     this.screen.position.set(0, CY, 0.245); g.add(this.screen);       // recessed
     // convex glass sitting proud of the bezel
     const glass = new THREE.Mesh(new THREE.SphereGeometry(1.15, 28, 18, 0, 0.40, Math.PI / 2 - 0.14, 0.28),
-      new THREE.MeshPhysicalMaterial({ color: 0x0a0d10, roughness: 0.08, metalness: 0, transmission: 0.6, transparent: true, opacity: 0.22, ior: 1.52 }));
+      // Transparent + specular, NOT transmissive. Three runs one full transmission
+      // pass per render() as soon as anything transmissive is visible, and this rig
+      // renders four viewports — so two small props were paying for four extra
+      // scene renders a frame. Over a black phosphor the difference is invisible.
+      new THREE.MeshPhysicalMaterial({ color: 0x0a0d10, roughness: 0.08, metalness: 0, transparent: true, opacity: 0.30, ior: 1.52, specularIntensity: 1.0 }));
     glass.position.set(0, CY, -0.83); g.add(glass);
     this.screenLight = new THREE.PointLight(0x66ff99, 1.3, 2.4, 2);
     this.screenLight.position.set(0, CY, 0.45); g.add(this.screenLight);

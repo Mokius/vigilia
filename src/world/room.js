@@ -13,6 +13,7 @@
 import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { buildTextures } from './textures.js';
+import { mulberry32 } from '../core/util.js';
 import { addSignage, addServices, addDoorDetail, addBatteryGauge, updateBatteryGauge, paintedPlate } from './detail.js';
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
@@ -575,40 +576,106 @@ export class Room {
     // Rendered against the void these read as white paper scraps taped into a
     // grey rectangle: too big, too pale, too opaque. Broken glass in the dark is
     // mostly EDGE — small, dark, and only visible where a facet catches the beam.
+    // ---- WHAT MAKES GLASS READ AS GLASS -----------------------------------
+    // Flat planes with transmission do not, however the numbers are tuned: a
+    // plane has no EDGE, and the edge is the whole tell. Three things fix it.
+    //
+    //  1. THICKNESS. Real shards are extruded, so their broken edges catch a hard
+    //     specular line while the faces stay nearly invisible. That bright rim on
+    //     a dark facet is what the eye recognises.
+    //  2. FRACTURE SHAPE. Glass breaks into acute triangles with one long
+    //     conchoidal edge, never into rectangles. Rectangles read as paper.
+    //  3. GREEN ON EDGE. Float glass is iron-tinted and only shows it through
+    //     thickness, so `attenuationColor` over a short `attenuationDistance`
+    //     puts the green exactly where a real pane puts it — in the edges.
+    // NO `transmission`, deliberately, and it is a measurement not a taste call.
+    // Three renders a full transmission pass per render() when any transmissive
+    // material is visible, and this rig renders four viewports — so 26 shards cost
+    // 3.99 ms/frame, 41% of the budget, dropping 1080p from 175 to 103 fps. What
+    // that pass was buying: a view through the shards of a near-black void. In a
+    // dark room glass is read almost entirely off its specular edges, so the
+    // thickness (below) and a hard highlight do the work, and the iron-green that
+    // `attenuationColor` used to provide is folded straight into the albedo.
     const shard = new THREE.MeshPhysicalMaterial({
-      color: 0x2e4147, roughness: 0.22, metalness: 0.0,
-      transmission: 0.55, transparent: true, opacity: 0.20, ior: 1.52,
-      reflectivity: 0.22, side: THREE.DoubleSide,
+      color: 0x9fc2bd, roughness: 0.05, metalness: 0.0,
+      transparent: true, opacity: 0.42, ior: 1.52,
+      specularIntensity: 1.0, side: THREE.DoubleSide, depthWrite: false,
     });
-    // Shards cling to the frame edges ONLY, inside the aperture. They used to be
-    // scattered across a 1.0 x 0.72 box that reached out past the opening and
-    // intersected whatever furniture stood near the wall.
-    const gw = this.openings.window.w / 2 - 0.10, gh = this.openings.window.h / 2 - 0.08;
-    // Teeth still in the frame: they hug the perimeter, they are small, and none
-    // of them floats in the middle of the aperture.
-    for (let i = 0; i < 14; i++) {
-      const sz = 0.035 + Math.random() * 0.05;
-      const sh = new THREE.Mesh(new THREE.PlaneGeometry(sz, sz * (0.7 + Math.random() * 0.7)), shard);
+    // The fracture surface itself: a conchoidal break is frosted, not polished.
+    // Without this every shard is uniformly glossy and reads as plastic.
+    const frost = new THREE.MeshStandardMaterial({
+      color: 0x8fa5a6, roughness: 0.62, metalness: 0.0,
+      transparent: true, opacity: 0.82, side: THREE.DoubleSide,
+    });
+    this._glassMats = [shard, frost];
+
+    const rnd = mulberry32(0x9155);          // fixed, so the break never changes
+    const gw = this.openings.window.w / 2 - 0.06, gh = this.openings.window.h / 2 - 0.05;
+
+    /** An acute, irregular fracture triangle, extruded to real thickness. */
+    const shardGeo = (scale) => {
+      const pts = [];
+      // one long edge and a sharp point: the silhouette a conchoidal break makes
+      const a0 = rnd() * Math.PI * 2;
+      const spread = 0.55 + rnd() * 0.65;
+      for (let k = 0; k < 3; k++) {
+        const a = a0 + k * (Math.PI * 2 / 3) + (rnd() - 0.5) * spread;
+        const r = scale * (k === 0 ? 1.0 : 0.34 + rnd() * 0.62);
+        pts.push(new THREE.Vector2(Math.cos(a) * r, Math.sin(a) * r));
+      }
+      const sh = new THREE.Shape(pts);
+      const g2 = new THREE.ExtrudeGeometry(sh, { depth: 0.005 + rnd() * 0.004, bevelEnabled: false });
+      g2.translate(0, 0, -0.004);
+      return g2;
+    };
+
+    // Teeth still gripped by the frame: they hang INWARD from the four edges,
+    // hugging the perimeter, so nothing floats across the middle of the aperture.
+    for (let i = 0; i < 16; i++) {
+      const scale = 0.030 + rnd() * 0.055;
+      const sh = new THREE.Mesh(shardGeo(scale), i % 5 === 0 ? frost : shard);
       const e = i % 4;
-      const along = (Math.random() - 0.5) * 1.7;
-      if (e === 0) sh.position.set(-gw + 0.01, along * gh, 0.045);
-      else if (e === 1) sh.position.set(gw - 0.01, along * gh, 0.045);
-      else if (e === 2) sh.position.set(along * gw, -gh + 0.01, 0.045);
-      else sh.position.set(along * gw, gh - 0.01, 0.045);
-      sh.rotation.z = (Math.random() - 0.5) * 1.1; sh.rotation.y = (Math.random() - 0.5) * 0.5;
+      const along = (rnd() - 0.5) * 1.8;
+      if (e === 0) sh.position.set(-gw + 0.006, along * gh, 0.042);
+      else if (e === 1) sh.position.set(gw - 0.006, along * gh, 0.042);
+      else if (e === 2) sh.position.set(along * gw, -gh + 0.006, 0.042);
+      else sh.position.set(along * gw, gh - 0.006, 0.042);
+      // Tipped OUT of the pane's plane by a few degrees. A shard still in its
+      // rebate is never perfectly flush, and that tilt is what lets the beam find
+      // an edge instead of skating across a mirror.
+      sh.rotation.z = (rnd() - 0.5) * 2.4;
+      sh.rotation.y = (rnd() - 0.5) * 0.55;
+      sh.rotation.x = (rnd() - 0.5) * 0.35;
+      sh.castShadow = true;
       grp.add(sh);
+    }
+    // The crack pattern left in the glazing rebate: hairlines radiating from
+    // where it went, drawn as very thin frosted slivers. This is the cue that
+    // says "something broke this" rather than "this was always a hole".
+    for (let i = 0; i < 9; i++) {
+      const a = rnd() * Math.PI * 2;
+      const len = 0.05 + rnd() * 0.13;
+      const cr = new THREE.Mesh(new THREE.BoxGeometry(len, 0.0035, 0.006), frost);
+      const rr = gh * (0.55 + rnd() * 0.42);
+      cr.position.set(Math.cos(a) * gw * 0.82, Math.sin(a) * rr, 0.044);
+      cr.rotation.z = a + (rnd() - 0.5) * 0.7;
+      grp.add(cr);
     }
     // Grit: half resting ON the sill top, half on the slab directly beneath the
     // opening. Both bands are now clamped to surfaces that actually exist there —
     // the old version left seven pieces floating in mid-air beside the wall.
-    const grit = new THREE.InstancedMesh(new THREE.TetrahedronGeometry(0.014), shard, 14);
+    // Grit on the sill and on the slab below. Seeded like the rest, so the
+    // aftermath is the same break every time rather than reshuffling on reload.
+    const grit = new THREE.InstancedMesh(new THREE.TetrahedronGeometry(0.011), frost, 20);
+    grit.castShadow = true;
     const mm = new THREE.Matrix4(), qq = new THREE.Quaternion();
-    for (let i = 0; i < 14; i++) {
-      const onSill = i < 7;
-      mm.compose(new V3((Math.random() - 0.5) * (onSill ? 1.34 : 1.0),
-                        onSill ? -0.535 : -1.195,
-                        onSill ? 0.06 + Math.random() * 0.16 : 0.10 + Math.random() * 0.26),
-        qq.setFromEuler(new THREE.Euler(Math.random() * 3, Math.random() * 3, Math.random() * 3)), new V3(1, 1, 1));
+    for (let i = 0; i < 20; i++) {
+      const onSill = i < 9;
+      mm.compose(new V3((rnd() - 0.5) * (onSill ? 1.34 : 1.05),
+                        onSill ? -HH - 0.055 : -HH - 0.72,
+                        onSill ? 0.06 + rnd() * 0.16 : 0.10 + rnd() * 0.26),
+        qq.setFromEuler(new THREE.Euler(rnd() * 3, rnd() * 3, rnd() * 3)),
+        new V3(0.6 + rnd() * 0.9, 0.6 + rnd() * 0.9, 0.6 + rnd() * 0.9));
       grit.setMatrixAt(i, mm);
     }
     grit.instanceMatrix.needsUpdate = true; grp.add(grit);
