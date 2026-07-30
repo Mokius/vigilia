@@ -202,7 +202,12 @@ export class Game {
     // has already been thrown must not keep re-triggering it.
     if (target && this._latched !== target.name && (this._dwell[target.name] || 0) >= D.dwell) {
       this._latched = target.name;
-      this._dwell[target.name] = 0;
+      // HELD, not reset. Zeroing the dwell here meant that the instant a lever
+      // fired, its progress ring started filling again under a beam that had not
+      // moved — which reads as "that did not register, hold it again", and the
+      // second fill then does nothing because the latch blocks it. Keeping it full
+      // makes the control stop dead the moment it is thrown.
+      this._dwell[target.name] = D.dwell;
       if (target.name === 'start') {
         const next = (this.state === GState.END && this._lastWin) ? Math.min(5, this.night + 1) : this.crt.night;
         this.crt.setNight(next);
@@ -211,7 +216,11 @@ export class Game {
       }
       this.crt.setNight(target.night);
     }
-    this.crt.setAim(target ? target.name : null, target ? (this._dwell[target.name] || 0) / D.dwell : 0);
+    // A latched control always reports complete, never charging.
+    const shown = !target ? 0
+      : this._latched === target.name ? 1
+      : (this._dwell[target.name] || 0) / D.dwell;
+    this.crt.setAim(target ? target.name : null, shown);
   }
 
   // ------------------------------------------------------------------ scare

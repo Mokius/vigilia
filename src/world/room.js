@@ -14,7 +14,7 @@ import * as THREE from 'three';
 import { CONFIG } from '../config.js';
 import { buildTextures } from './textures.js';
 import { mulberry32 } from '../core/util.js';
-import { addSignage, addServices, addDoorDetail, addBatteryGauge, updateBatteryGauge, paintedPlate } from './detail.js';
+import { addSignage, addServices, addDoorDetail, addBatteryGauge, updateBatteryGauge, paintedPlate, onFontsReady } from './detail.js';
 
 const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
@@ -793,10 +793,40 @@ export class Room {
     this.windowLight = back;
     // a hint of the hall beyond: two dark verticals, so the black has depth
     const beyond = new THREE.MeshStandardMaterial({ color: 0x0d1114, roughness: 0.95, metalness: 0.1 });
-    for (const [bx, br] of [[-0.34, 0.05], [0.38, 0.07]]) {
-      const pipeB = new THREE.Mesh(new THREE.CylinderGeometry(br, br, O.h * 1.4, 8), beyond);
-      pipeB.position.set(bx, 0, -0.72); pipeB.castShadow = true; grp.add(pipeB);
+    // The rim details in there (ladder, machine top) need to be only just visible:
+    // built from dryMech they came back as a lit room rather than a dark one, which
+    // defeats the point of looking THROUGH a hole into somewhere else.
+    const farLit = new THREE.MeshStandardMaterial({ color: 0x1b1f22, roughness: 1.0, metalness: 0.08 });
+    // ---- WHAT THE LABEL PROMISES --------------------------------------------
+    // The plate over this opening says SALA DE MAQUINAS, so there has to be one.
+    // Everything here is near-black and staggered in depth: read against the cold
+    // rim light it gives the hole a floor, a far side and things standing in it,
+    // which is what turns an aperture into a room you are looking into.
+    for (const [bx, br, bz] of [[-0.34, 0.05, -0.72], [0.38, 0.07, -0.58], [0.06, 0.035, -1.05]]) {
+      const pipeB = new THREE.Mesh(new THREE.CylinderGeometry(br, br, O.h * 1.6, 8), beyond);
+      pipeB.position.set(bx, 0, bz); pipeB.castShadow = true; grp.add(pipeB);
     }
+    // a machine block squatting on the far floor, only its top edge catching light
+    const blk = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.44, 0.34), beyond);
+    blk.position.set(0.18, -O.h * 0.5 + 0.22, -1.02); blk.castShadow = true; grp.add(blk);
+    const blkTop = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.03, 0.38), farLit);
+    blkTop.position.set(0.18, -O.h * 0.5 + 0.45, -1.02); grp.add(blkTop);
+    // a caged ladder up the far wall: vertical repetition reads as scale
+    const rung = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.012, 0.012, 0.26, 6), farLit, 7);
+    const mL = new THREE.Matrix4(), qL = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, 0, Math.PI / 2));
+    for (let i = 0; i < 7; i++) { mL.compose(new V3(-0.52, -O.h * 0.42 + i * 0.19, -1.24), qL, new V3(1, 1, 1)); rung.setMatrixAt(i, mL); }
+    rung.instanceMatrix.needsUpdate = true; grp.add(rung);
+    for (const sx of [-1, 1]) {
+      const stile = new THREE.Mesh(new THREE.BoxGeometry(0.016, O.h * 1.3, 0.016), farLit);
+      stile.position.set(-0.52 + sx * 0.13, 0, -1.24); grp.add(stile);
+    }
+    // a horizontal run crossing the whole space, well behind the near pipes
+    const runH = new THREE.Mesh(new THREE.CylinderGeometry(0.045, 0.045, O.w * 2.4, 8), beyond);
+    runH.rotation.z = Math.PI / 2; runH.position.set(0, O.h * 0.30, -1.32); grp.add(runH);
+    // and a far floor, so the hole has a bottom rather than fading out
+    const farFloor = new THREE.Mesh(new THREE.PlaneGeometry(O.w * 2.2, 1.5), beyond);
+    farFloor.rotation.x = -Math.PI / 2;
+    farFloor.position.set(0, -O.h * 0.5 - 0.01, -0.85); grp.add(farFloor);
 
     this.window = grp;
   }
@@ -976,47 +1006,57 @@ export class Room {
     const R = 512, C = R / 2;
     const cv = document.createElement('canvas'); cv.width = cv.height = R;
     const x = cv.getContext('2d');
-    x.fillStyle = '#d8d2c4'; x.beginPath(); x.arc(C, C, C - 8, 0, 7); x.fill();
-    x.strokeStyle = '#15120f'; x.lineWidth = 12; x.stroke();
+    // The dial is repainted once the webfonts land (see onFontsReady), so the
+    // whole paint has to live in a closure rather than run inline.
+    const paintDial = () => {
+    // DARK DIAL, PALE FIGURES — the opposite way round from before, and it fixes
+    // two things at once. A large pale disc is both the brightest thing in frame
+    // (so bloom spreads it until it clips and the hours vanish) and, once it had
+    // been dimmed enough to stop that, it just looked filthy. Small bright glyphs
+    // on a dark face bloom pleasantly instead of clipping, and stay readable.
+    x.fillStyle = '#1c1e1f'; x.beginPath(); x.arc(C, C, C - 8, 0, 7); x.fill();
+    x.strokeStyle = '#0d0e0f'; x.lineWidth = 12; x.stroke();
     // the shift ends at 6 — mark that sector so the goal is unmistakable
-    x.fillStyle = 'rgba(170,32,24,0.16)';
+    x.fillStyle = 'rgba(190,48,36,0.22)';
     x.beginPath(); x.moveTo(C, C); x.arc(C, C, C - 20, -Math.PI / 2, Math.PI / 2); x.closePath(); x.fill();
     x.textAlign = 'center'; x.textBaseline = 'middle';
     for (let i = 1; i <= 12; i++) {
       const a = (i / 12) * Math.PI * 2 - Math.PI / 2;
       const tx = C + Math.cos(a) * (C - 62), ty = C + Math.sin(a) * (C - 62);
       const six = (i === 6);
-      x.fillStyle = six ? '#a92018' : '#15120f';
+      x.fillStyle = six ? '#ff6a52' : '#e8e4d8';
       x.font = `${six ? 'bold ' : ''}${six ? 62 : 44}px ${CONFIG.fonts.stencil}`;
       x.fillText(String(i), tx, ty);
       // minute ticks
       x.beginPath();
       x.arc(C + Math.cos(a) * (C - 22), C + Math.sin(a) * (C - 22), i % 3 === 0 ? 7 : 4, 0, 7);
-      x.fillStyle = '#15120f'; x.fill();
+      x.fillStyle = '#cfcabc'; x.fill();
     }
-    x.fillStyle = '#a92018'; x.font = `30px ${CONFIG.fonts.crt}`;
+    x.fillStyle = '#ff7a60'; x.font = `34px ${CONFIG.fonts.crt}`;
     x.fillText('SALIDA 06:00', C, C + 118);
-    // decades of grime
-    x.fillStyle = 'rgba(60,50,35,0.26)'; x.beginPath(); x.arc(C * 0.7, C * 1.25, 110, 0, 7); x.fill();
-    x.fillStyle = 'rgba(40,34,24,0.18)'; x.beginPath(); x.arc(C * 1.35, C * 0.7, 78, 0, 7); x.fill();
+    // A little grime, but far less: the two big blotches read as rust across the
+    // whole dial and were half the reason it looked corroded rather than old.
+    x.fillStyle = 'rgba(80,74,60,0.10)'; x.beginPath(); x.arc(C * 0.72, C * 1.22, 96, 0, 7); x.fill();
+    };
+    paintDial();
+
     const tx = new THREE.CanvasTexture(cv); tx.colorSpace = THREE.SRGBColorSpace;
+    // The figures are the whole point of this object, and they were being drawn
+    // in a fallback font before Special Elite had loaded. Repaint when it lands.
+    onFontsReady(() => { paintDial(); tx.needsUpdate = true; });
     // A clock face is painted pale on purpose, so its map is cream — and with no
     // colour multiplier that albedo went through untouched and the dial saturated
     // to flat white the moment the beam crossed it. You could not read the time,
     // which is the one thing this object exists to tell you. Same halving that
     // paintedPlate applies, for the same reason.
     const face = new THREE.Mesh(new THREE.CircleGeometry(0.17, 32),
-      new THREE.MeshStandardMaterial({ map: tx, color: 0x3a3a3a, roughness: 1.0, metalness: 0.0 }));
-    // 0x5f5f5f still came back white, and the arithmetic said it should not:
-    // radiance 0.46, well under 1. What finishes it off is the BLOOM pass — the
-    // dial is the brightest thing in frame, so bloom spreads it and the sum
-    // clips. Anything that is both pale and the local maximum needs headroom for
-    // that, not just for its own exposure.
+      new THREE.MeshStandardMaterial({ map: tx, color: 0xa8a8a8, roughness: 1.0, metalness: 0.0 }));
     face.position.z = 0.035; grp.add(face);
     const rim = new THREE.Mesh(new THREE.TorusGeometry(0.175, 0.016, 8, 32), this.instrument); rim.position.z = 0.035; grp.add(rim);
     const body = new THREE.Mesh(new THREE.CylinderGeometry(0.175, 0.175, 0.06, 24), this.instrument);
     body.rotation.x = Math.PI / 2; grp.add(body);
-    const handMat = new THREE.MeshStandardMaterial({ color: 0x14110e, roughness: 1.0, metalness: 0.0 });
+    // pale hands, because the dial they sit on is now dark
+    const handMat = new THREE.MeshStandardMaterial({ color: 0xb8b2a4, roughness: 1.0, metalness: 0.0 });
     const mk = (len, wid) => { const m = new THREE.Mesh(new THREE.BoxGeometry(wid, len, 0.008), handMat); m.geometry.translate(0, len / 2, 0); m.position.z = 0.045; grp.add(m); return m; };
     this.clock = { grp, hour: mk(0.085, 0.017), minute: mk(0.135, 0.011) };
     this.setClock(0);

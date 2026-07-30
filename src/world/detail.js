@@ -17,6 +17,32 @@ import { CONFIG } from '../config.js';
 
 const V3 = THREE.Vector3;
 
+// ---------------------------------------------------------------------------
+// EVERY PAINTED SURFACE IS REDRAWN ONCE THE FONTS ARRIVE.
+//
+// This is the reason signs in this room have been hard to read for four
+// iterations. `Special Elite` and `Share Tech Mono` come from Google Fonts, and
+// every canvas here was painted ONCE at construction — which happens well before
+// those files land. So each plate was drawn in a fallback face with completely
+// different metrics: some strings overflowed, some collapsed, and the auto-shrink
+// added later measured against the wrong font too, so it computed the wrong
+// correction. Nothing was going to fix that at the layout level.
+//
+// Everything that paints text now registers its draw closure and gets repainted
+// when document.fonts.ready settles. Costs one extra canvas pass per plate, once.
+// ---------------------------------------------------------------------------
+const _repaint = [];
+let _fontsHooked = false;
+
+export function onFontsReady(fn) {
+  _repaint.push(fn);
+  if (_fontsHooked) return;
+  _fontsHooked = true;
+  const go = () => { for (const f of _repaint) { try { f(); } catch (e) { /* one bad plate must not stop the rest */ } } };
+  if (document.fonts && document.fonts.ready) document.fonts.ready.then(go);
+  else setTimeout(go, 1200);
+}
+
 /**
  * A painted metal plate. `draw(ctx, W, H)` paints it; a shared wear pass then
  * chips and dirties it so nothing ever looks freshly printed.
@@ -56,6 +82,9 @@ export function paintedPlate(wm, hm, draw, { px = 512, matte = 0.95, alpha = fal
     return rawFillText(str, cx, y, mw);
   };
 
+  const paint = () => {
+  c.setTransform(1, 0, 0, 1, 0, 0);
+  c.clearRect(0, 0, px, H);
   draw(c, px, H);
 
   // --- wear pass ---
@@ -73,9 +102,12 @@ export function paintedPlate(wm, hm, draw, { px = 512, matte = 0.95, alpha = fal
   gr.addColorStop(1, 'rgba(0,0,0,0.65)');
   c.fillStyle = gr; c.fillRect(0, 0, px, H);
   c.globalAlpha = 1;
+  };
+  paint();
 
   const tex = new THREE.CanvasTexture(cv);
   tex.colorSpace = THREE.SRGBColorSpace; tex.anisotropy = 4;
+  onFontsReady(() => { paint(); tex.needsUpdate = true; });
   // `color` acts as a multiplier on the map. Halving it guarantees a plate
   // cannot clip to white when the beam hits it square from a metre away —
   // the same trap the menu console fell into.

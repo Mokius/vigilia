@@ -44,7 +44,10 @@ export class CRTConsole {
   _build() {
     // Dark painted steel: the player aims the flashlight straight at this thing
     // from ~1 m, and pale metal blows out to pure white at that range.
-    const metal = new THREE.MeshStandardMaterial({ color: 0x22262b, roughness: 0.82, metalness: 0.45 });
+    // Colours untouched on purpose — the console's look is fine and stays. What
+    // comes down is the SPECULAR: at metalness 0.45 and below with roughness 0.42,
+    // aiming the torch at the cart turned every tube and bracket into a highlight.
+    const metal = new THREE.MeshStandardMaterial({ color: 0x22262b, roughness: 0.93, metalness: 0.20 });
     const g = new THREE.Group(); g.position.copy(this.parked); this.group = g; this.scene.add(g);
 
     // --- cart ---
@@ -109,7 +112,7 @@ export class CRTConsole {
       // pass per render() as soon as anything transmissive is visible, and this rig
       // renders four viewports — so two small props were paying for four extra
       // scene renders a frame. Over a black phosphor the difference is invisible.
-      new THREE.MeshPhysicalMaterial({ color: 0x0a0d10, roughness: 0.08, metalness: 0, transparent: true, opacity: 0.30, ior: 1.52, specularIntensity: 1.0 }));
+      new THREE.MeshPhysicalMaterial({ color: 0x0a0d10, roughness: 0.08, metalness: 0, transparent: true, opacity: 0.30, ior: 1.52, specularIntensity: 0.45 }));
     glass.position.set(0, CY, -0.83); g.add(glass);
     this.screenLight = new THREE.PointLight(0x66ff99, 1.3, 2.4, 2);
     this.screenLight.position.set(0, CY, 0.45); g.add(this.screenLight);
@@ -130,7 +133,7 @@ export class CRTConsole {
     panel.add(this._panelLabels());
     for (const sx of [-0.44, 0.44]) for (const sy of [-0.12, 0.12]) {
       const s = new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.007, 0.01, 6),
-        new THREE.MeshStandardMaterial({ color: 0x555a60, roughness: 0.4, metalness: 0.85 }));
+        new THREE.MeshStandardMaterial({ color: 0x555a60, roughness: 0.68, metalness: 0.32 }));
       s.rotation.x = Math.PI / 2; s.position.set(sx, sy, 0.026); panel.add(s);
     }
 
@@ -140,7 +143,8 @@ export class CRTConsole {
     // stands it up; neither reaches the casing behind.
     const REST = 0.62, ON = 0.10;
     this._leverRest = REST; this._leverOn = ON;
-    const steel = new THREE.MeshStandardMaterial({ color: 0x4a4f56, roughness: 0.42, metalness: 0.75 });
+    // the levers: still metal to the eye, no longer chrome to the beam
+    const steel = new THREE.MeshStandardMaterial({ color: 0x4a4f56, roughness: 0.66, metalness: 0.38 });
     const bakelite = new THREE.MeshStandardMaterial({ color: 0x121212, roughness: 0.55, metalness: 0.1 });
     this.levers = [];
     const mkLever = (x, scale, knobColor) => {
@@ -154,7 +158,7 @@ export class CRTConsole {
       const ring = new THREE.Mesh(new THREE.TorusGeometry(0.016 * scale, 0.005 * scale, 6, 12), bakelite);
       ring.rotation.x = Math.PI / 2; ring.position.y = 0.085 * scale; pivot.add(ring);
       const knob = new THREE.Mesh(new THREE.SphereGeometry(0.023 * scale, 14, 12),
-        new THREE.MeshStandardMaterial({ color: knobColor, roughness: 0.42, metalness: 0.15 }));
+        new THREE.MeshStandardMaterial({ color: knobColor, roughness: 0.62, metalness: 0.10 }));
       knob.position.y = 0.105 * scale; knob.castShadow = true; pivot.add(knob);
       return { pivot, knob };
     };
