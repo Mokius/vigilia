@@ -114,6 +114,65 @@ export class Room {
     this.wallMatB = wallMatB; this.wallMatC = wallMatC;
     // --- MATERIAL FAMILIES: each object type gets its own physical answer -----
     const metal = this._mat(tex.metal, 2, 2, { color: 0x565b62, metalness: 0.22, roughness: 0.84 });
+
+    // ======================================================================
+    // THE CONSTRAINT EVERY MATERIAL IN THIS ROOM LIVES UNDER
+    //
+    // The only real light is a 46 cd torch held at the eye, so surfaces get hit
+    // from about a metre. At that irradiance ANYTHING with metalness above ~0.22
+    // and roughness below ~0.85 blows out to white, and once the specular lobe
+    // saturates the albedo stops mattering at all — which is why tinting by
+    // arithmetic did not save the first attempt at this. So differentiation has
+    // to come from the MAP's pattern and its tint, never from metalness.
+    // The generic metal it replaces sat at 0.22/0.84 for exactly this reason.
+    // ======================================================================
+
+    // ---- STRUCTURAL FRAME STEEL -------------------------------------------
+    // The one substance shared by the door frame, the window frame and the
+    // corridor mouth, exactly as they should be: three openings cut in the same
+    // building, framed by the same rolled section, painted once decades ago.
+    // Heavier and cooler than the generic metal, and far less shiny than the
+    // handles, so a frame never reads as something you would touch.
+    // target 0x4a5158 over paintedSheet -> 255*74/105, 255*81/104, 255*88/97
+    const frameSteel = this._mat(tex.paintedSheet, 1.05, 1.05,
+      { color: 0xb4c7e7, metalness: 0.16, roughness: 0.88, normalScale: new THREE.Vector2(1.1, 1.1) });
+
+    // ---- GALVANISED DUCTWORK ----------------------------------------------
+    // Everything that carries air or cable: the duct collar and louvre, the cable
+    // trays, the tray rungs. Zinc crystallites, cool, and noticeably LIGHTER than
+    // the frames — which is the whole point, because the duct sits in the same
+    // wall as the door and the two must not read as one object.
+    // target 0x70767c over galvanised
+    // THE DUCT IS THE CLOSEST THING IN THE ROOM TO THE LAMP. The louvre swings out
+    // of the wall toward the player and ends up about 0.7 m from a 46 cd source,
+    // square on. Irradiance there is ~94, so radiance = albedo * 94 / pi: anything
+    // above 0.03 linear albedo saturates, and the galvanised map is BRIGHT (mean
+    // 142/255). Two earlier attempts blamed metalness and then roughness; it was
+    // never either, it was plain diffuse overexposure. The tint has to bring the
+    // albedo down to about 48/255 before the beam ever reaches it.
+    //   target 48/255 over a map mean of 142  ->  255 * 48 / 142
+    const duct = this._mat(tex.galvanised, 1.15, 1.15,
+      { color: 0x565658, metalness: 0.12, roughness: 0.95, normalScale: new THREE.Vector2(0.55, 0.55) });
+
+    // ---- PAINTED ENCLOSURE -------------------------------------------------
+    // Boxes that contain something: the breaker cabinet, junction boxes, the
+    // fluorescent housing, the sign backers. Darker than the frames and flatter,
+    // so a box reads as a box and not as structure.
+    // target 0x33383d over paintedSheet
+    const boxPaint = this._mat(tex.paintedSheet, 1.35, 1.35,
+      { color: 0x7c89a0, metalness: 0.14, roughness: 0.89 });
+
+    // ---- INSTRUMENT BAKELITE ----------------------------------------------
+    // Housings for things with a dial or a lens: the charge meter, the clock body,
+    // the beacon back plate. Moulded, nearly black, no metallic response at all —
+    // the reason the gauge currently reads as "another bit of metal".
+    // target 0x24272b over techPlastic
+    // Bakelite is the one thing here that may stay slightly glossy: it is dark
+    // enough (target 0x24272b) that even a full highlight lands mid grey.
+    const instrument = this._mat(tex.techPlastic, 1.5, 1.5,
+      { color: 0x838a92, metalness: 0.03, roughness: 0.62, normalScale: new THREE.Vector2(0.4, 0.4) });
+
+    Object.assign(this, { frameSteel, duct, boxPaint, instrument });
     const rust = this._mat(tex.rust, 1, 1, { color: 0x7a4f30, metalness: 0.12, roughness: 0.97 });
     // painted steel: furniture, lockers, shelving
     const painted = this._mat(tex.metal, 1.6, 1.6, { color: 0x3d4a4e, metalness: 0.18, roughness: 0.8 });
@@ -296,7 +355,7 @@ export class Room {
     const L = 3.2;
     const tube = new THREE.Mesh(new THREE.BoxGeometry(opW, opH, L), this.voidMat);
     tube.position.set(0, opH / 2, -L / 2); tube.receiveShadow = true; grp.add(tube);
-    const bar = (x, y, z, sx, sy, sz) => { const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), this.metal); m.position.set(x, y, z); m.castShadow = m.receiveShadow = true; grp.add(m); };
+    const bar = (x, y, z, sx, sy, sz) => { const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, sz), this.frameSteel); m.position.set(x, y, z); m.castShadow = m.receiveShadow = true; grp.add(m); };
     bar(-opW / 2, opH / 2, 0, 0.09, opH, 0.17); bar(opW / 2, opH / 2, 0, 0.09, opH, 0.17); bar(0, opH, 0, opW + 0.1, 0.11, 0.17);
     // side doors down the hall: the plant continues
     const hallDoorMat = new THREE.MeshStandardMaterial({ color: 0x0b0c10, roughness: 0.95 });
@@ -304,7 +363,7 @@ export class Room {
     for (const z of [-0.75, -3.05]) for (const sx of [-1, 1]) {
       const dr = new THREE.Mesh(new THREE.PlaneGeometry(0.58, 1.55), hallDoorMat);
       dr.position.set(sx * (opW / 2 - 0.012), 0.86, z); dr.rotation.y = sx * Math.PI / 2; grp.add(dr);
-      const fr2 = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.6, 0.05), this.metal);
+      const fr2 = new THREE.Mesh(new THREE.BoxGeometry(0.03, 1.6, 0.05), this.frameSteel);
       fr2.position.set(sx * (opW / 2 - 0.03), 0.88, z + 0.31); grp.add(fr2);
     }
     // ---- THE FAR END: where the corridor actually goes ---------------------
@@ -337,7 +396,7 @@ export class Room {
 
     // the RED: a bulkhead emergency luminaire over the doors, which is what has
     // been washing the corridor red all along
-    const bulk = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.13, 0.11), this.metal);
+    const bulk = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.13, 0.11), this.boxPaint);
     bulk.position.set(0, opH - 0.20, -L + 0.09); bulk.castShadow = true; grp.add(bulk);
     const bulkLens = new THREE.Mesh(new THREE.PlaneGeometry(0.20, 0.085),
       new THREE.MeshBasicMaterial({ color: 0x8e1a12, toneMapped: false }));
@@ -371,10 +430,10 @@ export class Room {
     }
     clamp2.instanceMatrix.needsUpdate = true; grp.add(clamp2);
     // a cable tray on the ceiling of the hall with instanced rungs
-    const trayRail = new THREE.InstancedMesh(new THREE.BoxGeometry(0.016, 0.04, L - 0.1), this.metal, 2);
+    const trayRail = new THREE.InstancedMesh(new THREE.BoxGeometry(0.016, 0.04, L - 0.1), this.duct, 2);
     [[-0.1], [0.1]].forEach(([x], i) => { m2.compose(new V3(x, opH - 0.05, -L / 2), q2.identity(), new V3(1, 1, 1)); trayRail.setMatrixAt(i, m2); });
     trayRail.instanceMatrix.needsUpdate = true; grp.add(trayRail);
-    const trayRung = new THREE.InstancedMesh(new THREE.BoxGeometry(0.22, 0.008, 0.022), this.metal, 11);
+    const trayRung = new THREE.InstancedMesh(new THREE.BoxGeometry(0.22, 0.008, 0.022), this.duct, 11);
     for (let k = 0; k < 11; k++) { m2.compose(new V3(0, opH - 0.068, -0.3 - k * 0.26), q2.identity(), new V3(1, 1, 1)); trayRung.setMatrixAt(k, m2); }
     trayRung.instanceMatrix.needsUpdate = true; grp.add(trayRung);
     // wall boxes / junction boxes down the hall
@@ -426,7 +485,7 @@ export class Room {
     const crossVoid = new THREE.Mesh(new THREE.BoxGeometry(3.4, 1.95, 0.92), this.voidMat);
     crossVoid.position.set(0, 0.975, -3.30); grp.add(crossVoid);
     for (const sx of [-1, 1]) {
-      const jam = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.95, 0.07), this.metal);
+      const jam = new THREE.Mesh(new THREE.BoxGeometry(0.06, 1.95, 0.07), this.frameSteel);
       jam.position.set(sx * (opW / 2 + 0.02), 0.975, -3.30 + sx * 0.42);
       jam.castShadow = true; grp.add(jam);
     }
@@ -441,9 +500,9 @@ export class Room {
     grp.userData.access = 'door';
     const recess = new THREE.Mesh(new THREE.BoxGeometry(1.06, 2.1, 1.0), this.voidMat);
     recess.position.set(0, 1.05, -0.55); recess.receiveShadow = true; grp.add(recess);
-    const jamb = (x) => { const m = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.14, 0.17), this.metal); m.position.set(x, 1.07, 0); m.castShadow = m.receiveShadow = true; grp.add(m); };
+    const jamb = (x) => { const m = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.14, 0.17), this.frameSteel); m.position.set(x, 1.07, 0); m.castShadow = m.receiveShadow = true; grp.add(m); };
     jamb(-0.56); jamb(0.56);
-    const lintel = new THREE.Mesh(new THREE.BoxGeometry(1.24, 0.14, 0.17), this.metal);
+    const lintel = new THREE.Mesh(new THREE.BoxGeometry(1.24, 0.14, 0.17), this.frameSteel);
     lintel.position.set(0, 2.14, 0); lintel.castShadow = true; grp.add(lintel);
     // hinge on the left edge so the gap (the "slit") opens on the right
     const pivot = new THREE.Group(); pivot.position.set(-0.52, 1.02, -0.05); grp.add(pivot);
@@ -486,11 +545,11 @@ export class Room {
     // worst offender for glare: the beam turned all five frame bars into mirror
     // streaks. A window frame that has been in a damp plant for thirty years is
     // painted, pitted and oxidised — metallic, but the highlight has to SPREAD.
-    const steel = new THREE.MeshStandardMaterial({
-      color: 0x7e848b, roughness: 0.58, metalness: 0.50,
-      map: this.metal.map, normalMap: this.metal.normalMap,
-      normalScale: new THREE.Vector2(0.7, 0.7),
-    });
+    // The window frame is the SAME section as the door frame — see frameSteel.
+    // It used to be a one-off built from the generic metal maps at metalness 0.50,
+    // which is why it read both as a different substance from the door and as
+    // something polished.
+    const steel = this.frameSteel;
     const lintelMat = new THREE.MeshStandardMaterial({
       color: 0x6d6a63, roughness: 0.98, metalness: 0.0,
       map: this.rust.map, normalMap: this.rust.normalMap,
@@ -727,7 +786,7 @@ export class Room {
 
     // flanged collar around the mouth: four bars with a visible rebate
     const collar = (sx, sy, px, py) => {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, 0.075), this.galv);
+      const m = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, 0.075), this.duct);
       m.position.set(px, py, 0.03); m.castShadow = m.receiveShadow = true; grp.add(m);
     };
     collar(O.w + 0.14, 0.07, 0, hh + 0.035); collar(O.w + 0.14, 0.07, 0, -hh - 0.035);
@@ -742,9 +801,9 @@ export class Room {
 
     // hinged louvre: pivot on the TOP edge, blades + backing plate below it
     const cover = new THREE.Group(); cover.position.set(0, hh, 0.055); grp.add(cover);
-    const plate = new THREE.Mesh(new THREE.BoxGeometry(O.w + 0.05, O.h + 0.04, 0.012), this.galv);
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(O.w + 0.05, O.h + 0.04, 0.012), this.duct);
     plate.position.set(0, -O.h / 2, -0.004); plate.castShadow = plate.receiveShadow = true; cover.add(plate);
-    const blades = new THREE.InstancedMesh(new THREE.BoxGeometry(O.w - 0.02, 0.045, 0.022), this.galv, 5);
+    const blades = new THREE.InstancedMesh(new THREE.BoxGeometry(O.w - 0.02, 0.045, 0.022), this.duct, 5);
     blades.castShadow = true;
     const mB = new THREE.Matrix4(), qB = new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.42, 0, 0));
     for (let i = 0; i < 5; i++) { mB.compose(new V3(0, -0.065 - i * 0.098, 0.012), qB, new V3(1, 1, 1)); blades.setMatrixAt(i, mB); }
@@ -897,8 +956,8 @@ export class Room {
     const tx = new THREE.CanvasTexture(cv); tx.colorSpace = THREE.SRGBColorSpace;
     const face = new THREE.Mesh(new THREE.CircleGeometry(0.17, 32), new THREE.MeshStandardMaterial({ map: tx, roughness: 0.7 }));
     face.position.z = 0.035; grp.add(face);
-    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.175, 0.016, 8, 32), this.metal); rim.position.z = 0.035; grp.add(rim);
-    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.175, 0.175, 0.06, 24), this.metal);
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(0.175, 0.016, 8, 32), this.instrument); rim.position.z = 0.035; grp.add(rim);
+    const body = new THREE.Mesh(new THREE.CylinderGeometry(0.175, 0.175, 0.06, 24), this.instrument);
     body.rotation.x = Math.PI / 2; grp.add(body);
     const handMat = new THREE.MeshStandardMaterial({ color: 0x14110e, roughness: 0.5 });
     const mk = (len, wid) => { const m = new THREE.Mesh(new THREE.BoxGeometry(wid, len, 0.008), handMat); m.geometry.translate(0, len / 2, 0); m.position.z = 0.045; grp.add(m); return m; };
@@ -1013,7 +1072,7 @@ export class Room {
     // conduit running down the corner + a junction box (reads as a real build)
     const conduit = new THREE.Mesh(new THREE.CylinderGeometry(0.022, 0.022, 1.9, 8), this.metal);
     conduit.position.set(-w + 0.06, 1.2, -d + 0.09); conduit.castShadow = true; this.group.add(conduit);
-    const jbox = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.18, 0.08), this.metal);
+    const jbox = new THREE.Mesh(new THREE.BoxGeometry(0.14, 0.18, 0.08), this.boxPaint);
     jbox.position.set(-w + 0.07, 0.5, -d + 0.1); jbox.castShadow = true; this.group.add(jbox);
 
     // skirting so walls meet the floor with a real edge, not a seam
@@ -1331,7 +1390,7 @@ export class Room {
     const emg = new THREE.PointLight(0x8a221a, 3.4, 6.5, 2);
     emg.position.copy(dome.position); this.group.add(emg);
     // a back plate, so the fitting is mounted to something
-    const emgBack = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.025, 12), this.metal);
+    const emgBack = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.025, 12), this.instrument);
     emgBack.rotation.z = Math.PI / 2; emgBack.position.set(CONFIG.room.W / 2 - 0.022, 2.15, 1.2);
     emgBack.castShadow = true; this.group.add(emgBack);
     // A fire-alarm beacon whose driver has failed: it keeps trying to strobe,

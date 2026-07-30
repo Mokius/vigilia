@@ -257,6 +257,20 @@ function surface(size, opts) {
   return { map, roughnessMap: mk(rgh), normalMap: mk(nrm) };
 }
 
+// ---------------------------------------------------------------------------
+// A NOTE ON roughBase, LEARNT THE HARD WAY
+//
+// three.js MULTIPLIES material.roughness by the green channel of roughnessMap —
+// it does not replace it. So a map authored with roughBase 0.32 caps every
+// material built on it at 0.32 effective roughness however high a number the
+// material writes, and there is no way back because roughness clamps at 1.0.
+// Measured: a frame asking for 0.88 was rendering at 0.297 and blowing out to
+// white under the torch.
+//
+// The maps that stand for MATTE industrial surfaces therefore sit at 0.84-0.90
+// here. The two that are genuinely glossy (brushedAlu, techPlastic) are left low
+// on purpose — for those the answer is a dark albedo, not a rougher map.
+// ---------------------------------------------------------------------------
 let _cache = null;
 export function buildTextures() {
   if (_cache) return _cache;
@@ -292,14 +306,14 @@ export function buildTextures() {
   // as flat facets rather than a mottled blur.
   const galvanised = surface(256, {
     baseFreq: 3, oct: 4, tint: [165, 170, 178], tintVar: 20,
-    roughBase: 0.42, roughVar: 0.22, normalScale: 2.2, seed: 101,
+    roughBase: 0.90, roughVar: 0.12, normalScale: 2.2, seed: 101,
     spangle: { scale: 16, amount: 0.38 },
   });
   // Smooth painted coat: lowest baseFreq/oct in the set (orange-peel only,
   // no coarse mottle) plus a handful of hard chips exposing the substrate.
   const paintedSheet = surface(512, {
     baseFreq: 2, oct: 3, tint: [150, 148, 138], tintVar: 14,
-    roughBase: 0.32, roughVar: 0.12, normalScale: 1.6, seed: 102,
+    roughBase: 0.86, roughVar: 0.10, normalScale: 1.6, seed: 102,
     speckle: { density: 9, size: 0.12, amount: 0.22 },
   });
   // Paint failing over rust: speckle amount cranked hard (0.6) so the
@@ -330,7 +344,7 @@ export function buildTextures() {
   // low-depth rib wave running perpendicular to the grain axis).
   const timber = surface(256, {
     baseFreq: 3, oct: 4, tint: [118, 78, 42], tintVar: 26,
-    roughBase: 0.55, roughVar: 0.2, normalScale: 2.8, seed: 106,
+    roughBase: 0.88, roughVar: 0.14, normalScale: 2.8, seed: 106,
     grain: { axis: 'y', freq: 14, amount: 0.4 },
     ribs: { axis: 'x', period: 4, depth: 0.05, profile: 'round' },
   });
@@ -338,7 +352,7 @@ export function buildTextures() {
   // blotchier base layer (higher oct + streaks) standing in for ply layers.
   const plywood = surface(256, {
     baseFreq: 6, oct: 5, tint: [176, 148, 104], tintVar: 34,
-    roughBase: 0.6, roughVar: 0.22, normalScale: 2.4, seed: 107, streaks: 0.3,
+    roughBase: 0.89, roughVar: 0.14, normalScale: 2.4, seed: 107, streaks: 0.3,
     grain: { axis: 'x', freq: 30, amount: 0.18 },
   });
   // Rubber: lowest normalScale/roughVar in the set — deliberately near-flat
@@ -359,7 +373,7 @@ export function buildTextures() {
   // form a raised lattice — the only map using ribs' array form.
   const diamondPlate = surface(256, {
     baseFreq: 4, oct: 3, tint: [100, 102, 106], tintVar: 16,
-    roughBase: 0.48, roughVar: 0.18, normalScale: 3.0, seed: 110,
+    roughBase: 0.87, roughVar: 0.14, normalScale: 3.0, seed: 110,
     ribs: [
       { axis: 'x', period: 9, depth: 0.24, profile: 'square' },
       { axis: 'y', period: 9, depth: 0.24, profile: 'square' },
@@ -369,7 +383,7 @@ export function buildTextures() {
   // Perforated sheet: the only map built around the regular punched-hole grid.
   const perfSheet = surface(256, {
     baseFreq: 3, oct: 3, tint: [124, 126, 132], tintVar: 14,
-    roughBase: 0.4, roughVar: 0.14, normalScale: 2.6, seed: 111,
+    roughBase: 0.88, roughVar: 0.12, normalScale: 2.6, seed: 111,
     perforate: { period: 11, radius: 0.24, depth: 0.55 },
   });
   // Tiled concrete: same family as `concrete` but the slab grid dominates —
@@ -385,14 +399,14 @@ export function buildTextures() {
   // blocky under a raking light.
   const corrugated = surface(512, {
     baseFreq: 3, oct: 4, tint: [108, 116, 122], tintVar: 18,
-    roughBase: 0.6, roughVar: 0.2, normalScale: 2.8, seed: 113, streaks: 0.6,
+    roughBase: 0.88, roughVar: 0.14, normalScale: 2.8, seed: 113, streaks: 0.6,
     ribs: { axis: 'y', period: 16, depth: 0.48, profile: 'round' },
   });
   // Greasy metal: same base character as `metal` but streaks cranked far
   // higher — dark oily contamination dominates rather than being an accent.
   const greasyMetal = surface(256, {
     baseFreq: 4, oct: 5, tint: [42, 42, 46], tintVar: 44,
-    roughBase: 0.5, roughVar: 0.4, normalScale: 2.8, seed: 114, streaks: 2.4,
+    roughBase: 0.84, roughVar: 0.22, normalScale: 2.8, seed: 114, streaks: 2.4,
   });
   // Sooted steel: darkest of the streaked-metal trio, higher roughBase than
   // greasyMetal (soot is matte, not oily) — the two shouldn't read as the same substance.

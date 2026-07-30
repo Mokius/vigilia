@@ -109,7 +109,7 @@ export function addSignage(room) {
   sign.geometry = new THREE.PlaneGeometry(0.8, 0.2);
   sign.position.set(1.02, 1.74, -d + 0.045); g.add(sign);
   // stand it off the wall on a bracket: a flat decal read as a sticker
-  const backer = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.24, 0.03), room.equip);
+  const backer = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.24, 0.03), room.boxPaint);
   backer.position.set(1.02, 1.74, -d + 0.022); backer.castShadow = true; g.add(backer);
 
   // FRONT beside the corridor: the exit arrow.
@@ -130,7 +130,7 @@ export function addSignage(room) {
     c.lineTo(W * 0.82, H * 0.76); c.closePath(); c.fillStyle = '#e8b45c'; c.fill();
   }, { px: 256 });
   exitSign.position.set(-1.0, 1.74, -d + 0.05); g.add(exitSign);
-  const exBox = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.24, 0.05), room.equip);
+  const exBox = new THREE.Mesh(new THREE.BoxGeometry(0.48, 0.24, 0.05), room.boxPaint);
   exBox.position.set(-1.0, 1.74, -d + 0.026); exBox.castShadow = true; g.add(exBox);
   // it is a lit sign, so give it its own faint glow — warm, never green
   const exLamp = new THREE.PointLight(0xd8a24a, 0.45, 1.1, 2);
@@ -282,7 +282,7 @@ export function addBatteryGauge(room) {
   room.group.add(grp);
 
   // housing + bezel, so it is a real instrument and not a decal
-  const box = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.26, 0.09), room.equip);
+  const box = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.26, 0.09), room.instrument);
   box.castShadow = box.receiveShadow = true; grp.add(box);
   const bezel = new THREE.Mesh(new THREE.TorusGeometry(0.095, 0.011, 6, 20), room.steel);
   bezel.position.z = 0.05; grp.add(bezel);
@@ -353,10 +353,10 @@ export function addServices(room) {
   // --- cable ladder tray with instanced rungs ---
   const tray = new THREE.Group(); tray.position.set(0.62, h - 0.1, 0); g.add(tray);
   for (const sx of [-1, 1]) {
-    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.055, CONFIG.room.D), room.metal);
+    const rail = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.055, CONFIG.room.D), room.duct);
     rail.position.set(sx * 0.13, 0, 0); rail.castShadow = true; tray.add(rail);
   }
-  const rung = new THREE.InstancedMesh(new THREE.BoxGeometry(0.28, 0.012, 0.03), room.metal, 12);
+  const rung = new THREE.InstancedMesh(new THREE.BoxGeometry(0.28, 0.012, 0.03), room.duct, 12);
   rung.castShadow = true;
   for (let i = 0; i < 12; i++) {
     m.compose(new V3(0, -0.02, -1.4 + i * 0.255), q.identity(), new V3(1, 1, 1));
@@ -374,10 +374,10 @@ export function addServices(room) {
   if (room.lights && room.lights.fluoMesh) {
     g.remove(room.lights.fluoMesh);
     const fix = new THREE.Group(); fix.position.set(0, h - 0.07, 0.4); g.add(fix);
-    const housing = new THREE.Mesh(new THREE.BoxGeometry(1.04, 0.09, 0.16), room.metal);
+    const housing = new THREE.Mesh(new THREE.BoxGeometry(1.04, 0.09, 0.16), room.boxPaint);
     housing.castShadow = housing.receiveShadow = true; fix.add(housing);
     for (const sx of [-1, 1]) {
-      const cap = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.1, 0.17), room.metal);
+      const cap = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.1, 0.17), room.boxPaint);
       cap.position.x = sx * 0.52; fix.add(cap);
       const ch = new THREE.Mesh(new THREE.CylinderGeometry(0.006, 0.006, 0.06, 4), room.metal);
       ch.position.set(sx * 0.42, 0.06, 0); fix.add(ch);
@@ -460,7 +460,7 @@ export function addDoorDetail(room) {
   const kick = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.22, 0.014), room.alu);
   kick.position.set(0.51, 0.17, 0.04); kick.castShadow = true; pivot.add(kick);
   for (const hy of [0.3, 1.02, 1.76]) {
-    const hinge = new THREE.Mesh(new THREE.CylinderGeometry(0.023, 0.023, 0.11, 8), room.metal);
+    const hinge = new THREE.Mesh(new THREE.CylinderGeometry(0.023, 0.023, 0.11, 8), room.stainless);
     hinge.position.set(0.015, hy, 0); hinge.castShadow = true; pivot.add(hinge);
   }
   const bar = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.042, 0.042), room.stainless);
