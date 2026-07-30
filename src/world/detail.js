@@ -26,6 +26,36 @@ export function paintedPlate(wm, hm, draw, { px = 512, matte = 0.95, alpha = fal
   const cv = document.createElement('canvas');
   cv.width = px; cv.height = H;
   const c = cv.getContext('2d');
+
+  // ---- GUARANTEED MARGINS, EVERYWHERE -----------------------------------
+  // Every sign in the room was setting its own font size as a fraction of the
+  // plate and hoping the string fitted. Long ones did not: they ran to both
+  // edges and, with the border stroke right there, became unreadable. Rather
+  // than hand-tune a dozen call sites, fillText is wrapped once here: it
+  // measures the string and, if it would breach the safe box, shrinks the font
+  // until it fits. Plates can now ask for the size they WANT and always get a
+  // readable one.
+  const SAFE = 0.86;                       // 7% clear on each side
+  const rawFillText = c.fillText.bind(c);
+  c.fillText = (str, x, y, mw) => {
+    const limit = px * SAFE;
+    let w = c.measureText(str).width;
+    if (w > limit) {
+      const m = /(\d+(?:\.\d+)?)px/.exec(c.font);
+      if (m) {
+        const shrunk = Math.max(6, Math.floor(parseFloat(m[1]) * (limit / w)));
+        c.font = c.font.replace(m[0], shrunk + 'px');
+        w = c.measureText(str).width;
+      }
+    }
+    // and keep the anchor itself inside the box, whatever the alignment
+    const half = w / 2;
+    let cx = x;
+    if (c.textAlign === 'center') cx = Math.min(px - half - px * 0.05, Math.max(half + px * 0.05, x));
+    else if (c.textAlign === 'left') cx = Math.min(px * 0.95 - w, Math.max(px * 0.05, x));
+    return rawFillText(str, cx, y, mw);
+  };
+
   draw(c, px, H);
 
   // --- wear pass ---
@@ -205,7 +235,10 @@ export function addSignage(room) {
 
   }, { px: 256 });
   regTag.rotation.x = -Math.PI / 2;
-  regTag.position.set(OP.x, 0.0035, OP.z - off - 0.20); g.add(regTag);
+  // Moved to the +X side of the hatch. On the approach side the walkway's two
+  // painted edge stripes ran straight across the word and cut the letters in half.
+  regTag.rotation.z = -Math.PI / 2;
+  regTag.position.set(OP.x + off + 0.22, 0.0035, OP.z); g.add(regTag);
 
   // FLOOR: a painted walkway leading in from the corridor. Guides the eye.
   // Shortened at both ends so it no longer runs under the chevrons at one end or
@@ -377,7 +410,12 @@ export function addDoorDetail(room) {
   if (!pivot) return;
   const F = CONFIG.fonts;
 
-  // painted door number, on the leaf so it swings with it
+  // THE LEAF LIES IN THE X-Y PLANE AND IS 6 cm THICK. Every piece of hardware
+  // below was laid out as if it lay in X-Z: the number plate was rotated 90 deg so
+  // it stood edge-on like a fin, the vision panel was 26 cm deep through a 6 cm
+  // leaf, and the wire grid was spread +-10 cm along Z. All of it stuck out into
+  // thin air, which is exactly the "things floating around the door when it opens"
+  // — it was never a swing problem, it was a plane problem.
   const plate = paintedPlate(0.3, 0.18, (c, W, H) => {
     c.fillStyle = '#8c8f84'; c.fillRect(0, 0, W, H);
     c.strokeStyle = '#3a3d36'; c.lineWidth = 4; c.strokeRect(6, 6, W - 12, H - 12);
@@ -385,25 +423,31 @@ export function addDoorDetail(room) {
     c.font = Math.round(H * 0.55) + 'px ' + F.stencil;
     c.fillText('L-03', W / 2, H * 0.54);
   }, { px: 256 });
-  plate.rotation.y = Math.PI / 2;
-  plate.position.set(0.63, 1.66, 0.0);
+  plate.position.set(0.62, 1.66, 0.034);      // flat ON the leaf face
   pivot.add(plate);
 
-  // wire-glass vision panel
-  const vision = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.34, 0.26),
+  // wire-glass vision panel: 26 cm across the leaf, 4 cm through it
+  const vision = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.34, 0.042),
     new THREE.MeshPhysicalMaterial({
-      color: 0x0b0f12, roughness: 0.3, metalness: 0,
-      transmission: 0.45, transparent: true, opacity: 0.55, ior: 1.4,
+      color: 0x0b0f12, roughness: 0.34, metalness: 0,
+      transmission: 0.42, transparent: true, opacity: 0.58, ior: 1.4,
     }));
-  vision.position.set(0.6, 1.3, 0); pivot.add(vision);
-  const wire = new THREE.InstancedMesh(new THREE.BoxGeometry(0.005, 0.3, 0.006), room.metal, 12);
+  vision.position.set(0.62, 1.30, 0.006); pivot.add(vision);
+  // a returned frame around the glass, so it is set INTO the leaf
+  for (const [sx, sy, px, py] of [[0.30, 0.03, 0, 0.185], [0.30, 0.03, 0, -0.185],
+                                  [0.03, 0.40, -0.145, 0], [0.03, 0.40, 0.145, 0]]) {
+    const fr = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, 0.05), room.galv);
+    fr.position.set(0.62 + px, 1.30 + py, 0.010); fr.castShadow = true; pivot.add(fr);
+  }
+  // the wire mesh inside the glass, in the leaf's own plane
+  const wire = new THREE.InstancedMesh(new THREE.BoxGeometry(0.004, 0.30, 0.004), room.stainless, 12);
   const mm = new THREE.Matrix4(), qq = new THREE.Quaternion();
-  for (let i = 0; i < 6; i++) {
-    mm.compose(new V3(0.62, 1.3, -0.1 + i * 0.04), qq.identity(), new V3(1, 1, 1));
+  for (let i = 0; i < 6; i++) {                       // verticals, spread in X
+    mm.compose(new V3(0.62 - 0.10 + i * 0.04, 1.30, 0.028), qq.identity(), new V3(1, 1, 1));
     wire.setMatrixAt(i, mm);
   }
-  for (let i = 0; i < 6; i++) {
-    mm.compose(new V3(0.62, 1.16 + i * 0.056, 0),
+  for (let i = 0; i < 6; i++) {                       // horizontals, spread in Y
+    mm.compose(new V3(0.62, 1.16 + i * 0.056, 0.028),
       qq.setFromEuler(new THREE.Euler(0, 0, Math.PI / 2)), new V3(0.85, 0.85, 0.85));
     wire.setMatrixAt(6 + i, mm);
   }
@@ -417,10 +461,10 @@ export function addDoorDetail(room) {
     const hinge = new THREE.Mesh(new THREE.CylinderGeometry(0.023, 0.023, 0.11, 8), room.metal);
     hinge.position.set(0.015, hy, 0); hinge.castShadow = true; pivot.add(hinge);
   }
-  const bar = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.045, 0.045), room.stainless);
-  bar.position.set(0.5, 0.98, 0.06); bar.castShadow = true; pivot.add(bar);
-  for (const bx of [0.2, 0.8]) {
-    const st = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.04, 0.06), room.metal);
-    st.position.set(bx, 0.98, 0.035); pivot.add(st);
+  const bar = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.042, 0.042), room.stainless);
+  bar.position.set(0.5, 0.98, 0.072); bar.castShadow = true; pivot.add(bar);
+  for (const bx of [0.20, 0.80]) {
+    const st = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.035, 0.055), room.tech);
+    st.position.set(bx, 0.98, 0.048); pivot.add(st);
   }
 }

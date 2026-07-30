@@ -19,12 +19,23 @@ const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
 const V3 = THREE.Vector3;
 
-function tiled(maps, rx, ry) {
+/**
+ * Clone a texture set at a given tiling, and optionally ROTATE and OFFSET it.
+ *
+ * Only four base maps exist (concrete, metal, rust, skin) and a dozen materials
+ * draw on them, so the same blotches kept turning up on the pipes, the crates,
+ * the door and the skirting — the eye recognises the pattern long before it
+ * recognises the material. A per-family rotation and offset costs nothing and
+ * decorrelates them: same source, no shared silhouette.
+ */
+function tiled(maps, rx, ry, rot = 0, ox = 0, oy = 0) {
   const o = {};
   for (const k of ['map', 'normalMap', 'roughnessMap']) {
     if (!maps[k]) continue;
     const t = maps[k].clone(); t.needsUpdate = true;
     t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(rx, ry);
+    if (rot) { t.center.set(0.5, 0.5); t.rotation = rot; }
+    if (ox || oy) t.offset.set(ox, oy);
     o[k] = t;
   }
   return o;
@@ -39,7 +50,12 @@ export class Room {
   }
 
   _mat(maps, rx, ry, extra = {}) {
-    const t = tiled(maps, rx, ry);
+    // Each material gets its own rotation and offset off a shared counter, so no
+    // two families built from the same base map show the same pattern.
+    this._matN = (this._matN || 0) + 1;
+    const n = this._matN;
+    const t = tiled(maps, rx, ry, (n % 4) * (Math.PI / 4) + n * 0.11,
+                    (n * 0.37) % 1, (n * 0.61) % 1);
     return new THREE.MeshStandardMaterial({
       map: t.map, normalMap: t.normalMap, roughnessMap: t.roughnessMap,
       metalness: 0, roughness: 1, normalScale: new THREE.Vector2(1.4, 1.4),
@@ -842,11 +858,13 @@ export class Room {
     // ---- LEFT-BACK: shelving on the left wall, clear of the door aperture ----
     const shelf = new THREE.Group(); shelf.position.set(-1.34, 0, 1.20); this.group.add(shelf);
     for (let i = 0; i < 3; i++) {
-      const s = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.03, 0.55), this.painted);
+      // timber shelves in a steel frame: the unit no longer shares a look with
+      // the duct louvre two metres away, which is what made them read as one thing
+      const s = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.03, 0.55), this.timber);
       s.position.set(0, 0.35 + i * 0.3, 0); s.castShadow = s.receiveShadow = true; shelf.add(s);
     }
     for (const sz of [-0.25, 0.25]) {
-      const p = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.98, 0.04), this.metal);
+      const p = new THREE.Mesh(new THREE.BoxGeometry(0.04, 0.98, 0.04), this.galv);
       p.position.set(0, 0.49, sz); p.castShadow = true; shelf.add(p);
     }
     // stock on the shelves, so it is storage rather than empty planks
@@ -1056,7 +1074,11 @@ export class Room {
     // door's own shape stays legible.
     const cabHinge = new THREE.Group();
     cabHinge.position.set(-CW / 2 - 0.028, 0, -CD / 2 + 0.02);
-    cabHinge.rotation.y = -0.66; cab.add(cabHinge);
+    // 38 deg swung the leaf across the whole enclosure from the player's side, so
+    // the thing you were meant to identify was hidden behind its own door. Barely
+    // ajar instead: the box, the flange and the leaf all read, and the label that
+    // names it now lives on the OUTSIDE of the door where it can be seen.
+    cabHinge.rotation.y = -0.22; cab.add(cabHinge);
     const leafD = CD - 0.05;
     const doorPanel = new THREE.Mesh(new THREE.BoxGeometry(0.026, CH - 0.05, leafD), this.chipped);
     doorPanel.geometry.translate(0, 0, leafD / 2);
@@ -1081,6 +1103,20 @@ export class Room {
     // rubber gasket around the frame: the seal you would actually find here
     const gask = new THREE.Mesh(new THREE.BoxGeometry(0.012, CH - 0.10, 0.012), this.rubber);
     gask.position.set(-CW / 2 - 0.006, 0, -CD / 2 + 0.03); cab.add(gask);
+    // the identity plate, on the door, facing the room
+    const cabTag = paintedPlate(0.34, 0.13, (c, W, H) => {
+      c.fillStyle = '#1a1d20'; c.fillRect(0, 0, W, H);
+      c.strokeStyle = '#8b9084'; c.lineWidth = 4;
+      c.strokeRect(W * 0.06, H * 0.14, W * 0.88, H * 0.72);
+      c.fillStyle = '#d6dbc8'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.font = Math.round(H * 0.34) + 'px ' + CONFIG.fonts.stencil;
+      c.fillText('CUADRO', W / 2, H * 0.38);
+      c.fillStyle = '#c05a3c';
+      c.font = Math.round(H * 0.26) + 'px ' + CONFIG.fonts.crt;
+      c.fillText('400 V', W / 2, H * 0.70);
+    }, { px: 384 });
+    cabTag.rotation.y = -Math.PI / 2;
+    cabTag.position.set(-0.016, 0.16, leafD * 0.55); cabHinge.add(cabTag);
     // (the old 12-breaker block that used to sit here is gone: the rebuilt
     //  cabinet above carries 18 of them on real DIN rails.)
 

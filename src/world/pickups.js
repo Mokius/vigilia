@@ -81,12 +81,20 @@ class Battery {
     lens.position.set(0.034, 0.038, 0.0455); g.add(lens);
     this.lens = lens;
 
-    // A very short-range light so the LED spills onto the surface it sits on —
-    // 12 cm of reach, which grazes the bench top and nothing else. This is what
-    // makes it findable without becoming a lamp.
-    this.glowLight = new THREE.PointLight(0x3dff86, 0.0, 0.13, 2);
-    this.glowLight.position.set(0.034, 0.038, 0.055);
+    // THE INDICATOR HAS TO LIGHT THE ROOM AROUND IT. At 13 cm of reach it lit
+    // nothing but the millimetre of plastic it sat in, so in a dark room the cell
+    // was effectively invisible until the beam happened to cross it. It now
+    // throws a real pulse 0.9 m: enough to wash the surface it stands on and the
+    // wall behind it, so a blink in your peripheral vision tells you where the
+    // power is. Still emitted BY the object, which is the part that matters.
+    this.glowLight = new THREE.PointLight(0x3dff86, 0.0, 0.90, 2);
+    this.glowLight.position.set(0.034, 0.045, 0.075);
     g.add(this.glowLight);
+    // and a second, wider and dimmer, so the pulse has a soft edge instead of a
+    // hard pool — it reads as a lamp rather than a spotlight
+    this.glowWide = new THREE.PointLight(0x2bd870, 0.0, 2.10, 2);
+    this.glowWide.position.set(0.034, 0.09, 0.06);
+    g.add(this.glowWide);
   }
 
   /** @returns null | 'collected' | 'tick' */
@@ -122,15 +130,18 @@ class Battery {
       const on = this._blink < 0.5;
       this._blink = on ? 1 : 0;
       // charging: fast and even. idle: a brief flash, then a long irregular wait.
+      // A 60 ms flash every two or three seconds is almost impossible to catch
+      // out of the corner of your eye. Longer flash, shorter wait, still uneven.
       this._nextBlink = on
-        ? (0.05 + Math.random() * 0.07) * (1 - f * 0.5)
-        : (f > 0.02 ? 0.10 + Math.random() * 0.10 : 0.9 + Math.random() * 2.4);
+        ? (0.16 + Math.random() * 0.14) * (1 - f * 0.4)
+        : (f > 0.02 ? 0.08 + Math.random() * 0.08 : 0.45 + Math.random() * 0.85);
     }
     // a little filament lag rather than a hard digital edge
     this._lit = (this._lit || 0) + (this._blink - (this._lit || 0)) * Math.min(1, dt * 22);
     const k = this._lit;
-    this.lensMat.color.setRGB(0.04 + 0.16 * k, 0.10 + 0.85 * k, 0.06 + 0.30 * k);
-    this.glowLight.intensity = 0.055 * k + f * 0.05;
+    this.lensMat.color.setRGB(0.06 + 0.34 * k, 0.16 + 0.84 * k, 0.09 + 0.42 * k);
+    this.glowLight.intensity = 0.85 * k + f * 0.5;
+    this.glowWide.intensity = 0.30 * k + f * 0.2;
     // it is being taken: the case lifts a few millimetres and the LED runs solid
     this.group.position.y = this.pos.y + f * 0.012;
     return out;
@@ -276,9 +287,19 @@ export class PickupField {
     // fault of the player. If nothing is available, the soonest cell is pulled
     // forward so there is always one either out or a couple of seconds away.
     // Tension, never a dead end.
+    // ABSOLUTE FLOOR: an empty board is not tension, it is a dead end. If nothing
+    // is available the next cell arrives on THIS frame, not in a couple of
+    // seconds — running out of light with nowhere to recharge has to be
+    // impossible, not merely unlikely.
     if (this.remaining === 0) {
       let soonest = null;
       for (const b of this.items) if (!soonest || b.respawnT < soonest.respawnT) soonest = b;
+      if (soonest) { const sp = this._pickSpot(this._rng); if (sp) soonest.respawn(sp); }
+    }
+    // and a second one is never far behind
+    if (this.remaining === 1) {
+      let soonest = null;
+      for (const b of this.items) if (b.taken && (!soonest || b.respawnT < soonest.respawnT)) soonest = b;
       if (soonest) soonest.respawnT = Math.min(soonest.respawnT, D.floorDelay);
     }
 

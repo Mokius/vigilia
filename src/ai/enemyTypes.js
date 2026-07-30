@@ -17,7 +17,10 @@ export const ENEMY_TYPES = [
     id: 'romero', name: 'ROMERO', modelKey: 'romero',
     height: 1.86,
     routes: ['door', 'corridor', 'window'],
-    crossRoute: 'corridorCross',
+    // The cross-corridor fly-by is gone. A silhouette walking left to right
+    // behind the doorway reads as something wandering past on an errand, not as a
+    // threat, and it undercut the front wall rather than charging it.
+    crossRoute: null,
     // A 0.15 s crossing cannot contain a stride, so the take had to be run at
     // 3.4x to fill it and the result was fast-forward footage. The crossing is
     // now long enough for two real steps and the hold is trimmed to match, so

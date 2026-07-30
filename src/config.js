@@ -58,16 +58,16 @@ export const CONFIG = {
     // which is where "I only found one battery all night" came from. Three, with
     // a much shorter clock and a floor guarantee in PickupField, keeps the room
     // short of power without ever leaving it unsolvable.
-    live: 3,
+    live: 4,
     dwell: 1.4,                // seconds of continuous aim to collect
-    amount: 28,                // % restored (never a full charge)
+    amount: 42,                // % restored (never a full charge)
     litThreshold: 0.35,
     maxAngle: 0.20,            // must be near the beam axis, not just in the cone
     // Each collected cell comes back on its own clock, staggered.
-    respawn: [11, 21],
+    respawn: [6, 13],
     // Never leave the player with nothing: if the board is empty, the next cell
     // arrives within this many seconds regardless of its own clock.
-    floorDelay: 2.5,
+    floorDelay: 1.2,
     // Only ONE cell can ever be charging: the one closest to the beam axis.
     exclusive: true,
   },
