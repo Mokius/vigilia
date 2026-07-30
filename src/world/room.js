@@ -102,29 +102,35 @@ export class Room {
     // nudged). Second, the tiling drops to ~1 tile per surface, which removes
     // the repeat pattern entirely — the detail now comes from geometry (ribs,
     // seams, bolts, painted plates), which is where it reads properly anyway.
-    const floorMat = this._mat(tex.concrete, 1.5, 1.5, { color: 0x4a4e56, roughness: 0.96, normalScale: new THREE.Vector2(1.9, 1.9) });
-    // ceiling = painted structural deck: darker, flatter, clearly not the floor
-    const ceilMat = this._mat(tex.metal, 1.3, 1.3, { color: 0x2f3439, metalness: 0.1, roughness: 0.92, normalScale: new THREE.Vector2(1.1, 1.1) });
-    // FRONT = painted sheet steel: cool, semi-gloss, shallow tooling marks
-    const wallMat = this._mat(tex.metal, 1.15, 0.95, { color: 0x4c545a, metalness: 0.15, roughness: 0.76, normalScale: new THREE.Vector2(1.5, 1.5) });
-    // LEFT = bare cast concrete: warm, utterly matte, deep pitted relief
+    // FLOOR = a poured slab in bays. tiledConcrete carries the joint grid in its
+    // own height field, which is what a 3 m span of concrete actually looks like —
+    // one unbroken blanket of noise never did.
+    const floorMat = this._mat(tex.tiledConcrete, 1.35, 1.35, { color: 0x585c62, roughness: 0.96, normalScale: new THREE.Vector2(1.9, 1.9) });
+    // CEILING = deck plate blackened by decades of whatever ran through here.
+    const ceilMat = this._mat(tex.sootedSteel, 1.2, 1.2, { color: 0x6a7076, metalness: 0.12, roughness: 0.93, normalScale: new THREE.Vector2(1.2, 1.2) });
+    // FRONT = painted sheet steel: the orange-peel of a sprayed coat.
+    const wallMat = this._mat(tex.paintedSheet, 1.1, 0.9, { color: 0x4e565c, metalness: 0.14, roughness: 0.74, normalScale: new THREE.Vector2(1.4, 1.4) });
+    // LEFT = bare cast concrete: warm, utterly matte, deep pitted relief.
     const wallMatB = this._mat(tex.concrete, 1.0, 0.85, { color: 0x635c51, metalness: 0.0, roughness: 0.98, normalScale: new THREE.Vector2(2.5, 2.5) });
-    // RIGHT = corrugated industrial cladding: colder, tighter, plus real ribs
-    const wallMatC = this._mat(tex.metal, 1.0, 0.9, { color: 0x464d54, metalness: 0.2, roughness: 0.68, normalScale: new THREE.Vector2(1.2, 1.2) });
+    // RIGHT = profiled cladding. The ribs are in the MAP as well as in geometry,
+    // so the sheet still reads as corrugated between the modelled ribs.
+    const wallMatC = this._mat(tex.corrugated, 1.0, 0.85, { color: 0x5a6167, metalness: 0.18, roughness: 0.70, normalScale: new THREE.Vector2(1.5, 1.5) });
     this.wallMatB = wallMatB; this.wallMatC = wallMatC;
     // --- MATERIAL FAMILIES: each object type gets its own physical answer -----
     const metal = this._mat(tex.metal, 2, 2, { color: 0x565b62, metalness: 0.22, roughness: 0.84 });
     const rust = this._mat(tex.rust, 1, 1, { color: 0x7a4f30, metalness: 0.12, roughness: 0.97 });
-    // painted steel: furniture, lockers, shelving
-    const painted = this._mat(tex.metal, 1.6, 1.6, { color: 0x3d4a4e, metalness: 0.18, roughness: 0.8 });
+    // painted steel: furniture, lockers, cabinets
+    const painted = this._mat(tex.paintedSheet, 1.5, 1.5, { color: 0x44525a, metalness: 0.16, roughness: 0.80 });
     // Hardware you touch: bars, handles, rails.
     // This was near-chrome (metalness 0.85 / roughness 0.38) and it was the main
     // source of the mirror glare — at 1 m the lamp became a specular sun on every
     // rail and handle. Nothing in a damp, decades-old plant is polished: this is
     // now aged mild steel, still metallic but with a highlight that spreads.
     const steel = new THREE.MeshStandardMaterial({ color: 0x757b83, metalness: 0.52, roughness: 0.64 });
-    // Cast iron: the drainage hatch and its frame. Dark, dry, barely specular.
-    const iron = this._mat(tex.rust, 2.4, 2.4, { color: 0x35383c, metalness: 0.28, roughness: 0.94, normalScale: new THREE.Vector2(1.7, 1.7) });
+    // Cast iron: the drainage hatch and its frame. Sandy aggregate grain, dark,
+    // dry, barely specular — castIron is the coarsest map in the set, which is
+    // exactly what a sand-cast surface looks like.
+    const iron = this._mat(tex.castIron, 2.2, 2.2, { color: 0x62666b, metalness: 0.26, roughness: 0.94, normalScale: new THREE.Vector2(1.7, 1.7) });
     this.iron = iron;
 
     // ---- MATERIAL LIBRARY --------------------------------------------------
@@ -135,36 +141,70 @@ export class Room {
     // Tiling is kept at or near 1 on small parts — a repeat of 2 on a 30 cm
     // bracket is a visible pattern inside a single object.
     //
-    // galvanised steel: spangled, cool, semi-matte. Ducting, trays, tube frames.
-    const galv = this._mat(tex.metal, 1.0, 1.0, { color: 0x777d84, metalness: 0.42, roughness: 0.72, normalScale: new THREE.Vector2(0.8, 0.8) });
-    // aluminium: lighter and slightly warmer than galv, finer grain. Motor bodies,
-    // kick plates, extrusions.
-    const alu = this._mat(tex.metal, 1.0, 1.0, { color: 0x8f949a, metalness: 0.60, roughness: 0.52, normalScale: new THREE.Vector2(0.5, 0.5) });
+    // These five were the worst offenders: five different substances all faked
+    // from tex.metal or tex.rust with a tint pushed over the top, which is why the
+    // duct, the chair frame, the door and the skirting all read as one material.
+    // Each now has a map built for it.
+    //
+    // galvanised steel: zinc crystallites. Ducting, trays, tube frames.
+    const galv = this._mat(tex.galvanised, 1.1, 1.1, { color: 0x565b61, metalness: 0.44, roughness: 0.70, normalScale: new THREE.Vector2(1.0, 1.0) });
+    // aluminium: fine unidirectional grain, lighter and less rough than galv.
+    const alu = this._mat(tex.brushedAlu, 1.0, 1.0, { color: 0x6e737a, metalness: 0.62, roughness: 0.50, normalScale: new THREE.Vector2(0.7, 0.7) });
     // stainless: the only genuinely bright metal in the room, and it is used only
     // on things a hand touches, so a hard highlight always means "handle".
     const stainless = new THREE.MeshStandardMaterial({ color: 0x9ba1a8, metalness: 0.72, roughness: 0.34 });
-    // technical plastic: knobs, handles, cable glands. Zero metalness, soft sheen.
-    const tech = new THREE.MeshStandardMaterial({ color: 0x2b2f34, metalness: 0.0, roughness: 0.48 });
+    // technical plastic: knobs, handles, cable glands. Faint mould flow, no metal.
+    const tech = this._mat(tex.techPlastic, 1.4, 1.4, { color: 0x3c4147, metalness: 0.0, roughness: 0.48, normalScale: new THREE.Vector2(0.5, 0.5) });
     // rubber: gaskets, wheels, feet. The flattest thing here — it must never
     // catch a highlight at all.
-    const rubber = new THREE.MeshStandardMaterial({ color: 0x14161a, metalness: 0.0, roughness: 0.98 });
-    // chipped paint over steel: the sheet where the coating has gone
-    const chipped = this._mat(tex.rust, 1.0, 1.2, { color: 0x4a5148, metalness: 0.14, roughness: 0.90, normalScale: new THREE.Vector2(1.9, 1.9) });
-    Object.assign(this, { galv, alu, stainless, tech, rubber, chipped });
+    const rubber = this._mat(tex.rubber, 1.6, 1.6, { color: 0x8d9299, metalness: 0.0, roughness: 0.98, normalScale: new THREE.Vector2(0.6, 0.6) });
+    // chipped paint over steel: hard two-tone flakes where the coating has gone.
+    const chipped = this._mat(tex.chippedPaint, 1.0, 1.2, { color: 0x6f7a70, metalness: 0.14, roughness: 0.90, normalScale: new THREE.Vector2(1.9, 1.9) });
+
+    // ---- AND A DOZEN MORE, so no object has to borrow another's substance ----
+    // plywood: bench tops, crate lids. Finer, blotchier and lighter than timber,
+    // and its grain runs the other way, so the two never look like one board.
+    const plywood = this._mat(tex.plywood, 1.3, 1.3, { color: 0x7d6d55, metalness: 0.0, roughness: 0.92 });
+    // tread plate: walkways, the hatch surround, the corridor grating panel.
+    const tread = this._mat(tex.diamondPlate, 1.5, 1.5, { color: 0x5d6268, metalness: 0.30, roughness: 0.80, normalScale: new THREE.Vector2(1.6, 1.6) });
+    // perforated sheet: louvre backings, cabinet ventilation.
+    const perf = this._mat(tex.perfSheet, 1.6, 1.6, { color: 0x585d63, metalness: 0.34, roughness: 0.76, normalScale: new THREE.Vector2(1.5, 1.5) });
+    // oily metal: the pump and the pipework immediately around it. Streaked
+    // contamination, not just a darker grey.
+    const greasy = this._mat(tex.greasyMetal, 1.2, 1.2, { color: 0x6e747b, metalness: 0.36, roughness: 0.58 });
+    // sooted steel: anything that has lived under the failing beacon or in the
+    // corridor draught. Matte, blackened, unevenly.
+    const soot = this._mat(tex.sootedSteel, 1.3, 1.3, { color: 0x64696e, metalness: 0.16, roughness: 0.92 });
+    // and the two families the plant equipment needs: a painted enclosure, and
+    // the bare rolled sheet its panels are pressed from
+    const enclosure = this._mat(tex.paintedSheet, 1.25, 1.25, { color: 0x33383d, metalness: 0.22, roughness: 0.84 });
+    const rolled = this._mat(tex.metal, 1.35, 1.35, { color: 0x4c5157, metalness: 0.30, roughness: 0.66 });
+    // structural timber for pallets and bearers: coarser than either wood above
+    const bearer = this._mat(tex.timber, 0.85, 0.85, { color: 0x6a5a44, metalness: 0.0, roughness: 0.95, normalScale: new THREE.Vector2(1.6, 1.6) });
+    // concrete that has been cast against formwork rather than trowelled
+    const formed = this._mat(tex.tiledConcrete, 2.4, 2.4, { color: 0x4e5257, roughness: 0.97 });
+    // the greasy family's dry cousin: dusty, unlubricated mechanism
+    const dryMech = this._mat(tex.castIron, 1.6, 1.6, { color: 0x585d62, metalness: 0.22, roughness: 0.90 });
+    Object.assign(this, {
+      galv, alu, stainless, tech, rubber, chipped,
+      plywood, tread, perf, greasy, soot, enclosure, rolled, bearer, formed, dryMech,
+    });
     // aged plastic / bakelite: knobs, switch bodies
     const plastic = new THREE.MeshStandardMaterial({ color: 0x23252a, metalness: 0.0, roughness: 0.62 });
     // worn timber: crates and pallets
-    const timber = this._mat(tex.rust, 1.2, 1.2, { color: 0x6b5638, metalness: 0.0, roughness: 0.95 });
+    // Was tex.RUST with a brown tint, which is why the crates and the pipework
+    // shared a pattern. Real grain now.
+    const timber = this._mat(tex.timber, 1.1, 1.1, { color: 0x8a7355, metalness: 0.0, roughness: 0.94, normalScale: new THREE.Vector2(1.5, 1.5) });
     // chipped enamel paint: the door leaf
     // Dropped from 0x4a5b53: the leaf is the largest surface that ever gets within
     // a metre of the lamp, and at that albedo it washed out to flat cream.
-    const enamel = this._mat(tex.rust, 0.9, 1.4, { color: 0x354039, metalness: 0.1, roughness: 0.88 });
+    const enamel = this._mat(tex.chippedPaint, 0.95, 1.3, { color: 0x5c6a5f, metalness: 0.1, roughness: 0.88 });
     Object.assign(this, { painted, steel, plastic, timber, enamel });
     // fog:false as well — a hole must not drift toward the fog colour with distance
     const voidMat = new THREE.MeshStandardMaterial({ color: 0x030406, roughness: 1, side: THREE.BackSide, fog: false });
     // Dark painted equipment. The big flat faces of the cabinet, pump and bench
     // sit ~1 m from the lamp; in mid-grey metal the beam clipped them to white.
-    const equip = this._mat(tex.metal, 2, 2, { color: 0x2a2e33, metalness: 0.3, roughness: 0.9 });
+    const equip = this._mat(tex.paintedSheet, 1.8, 1.8, { color: 0x2f343a, metalness: 0.26, roughness: 0.88 });
     this.metal = metal; this.rust = rust; this.voidMat = voidMat; this.equip = equip;
 
     const plane = (pw, ph, m) => new THREE.Mesh(new THREE.PlaneGeometry(pw, ph), m);
@@ -403,11 +443,11 @@ export class Room {
     // a stacked pallet and a drum against the right wall of the hall
     const pallet = new THREE.Group(); pallet.position.set(opW / 2 - 0.17, 0.06, -2.55); grp.add(pallet);
     for (let k = 0; k < 4; k++) {
-      const board = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.022, 0.075), this.timber);
+      const board = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.022, 0.075), this.bearer);
       board.position.set(0, 0.05, -0.17 + k * 0.115); board.castShadow = true; pallet.add(board);
     }
     for (const bz of [-0.16, 0, 0.16]) {
-      const bear = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.045, 0.05), this.timber);
+      const bear = new THREE.Mesh(new THREE.BoxGeometry(0.32, 0.045, 0.05), this.bearer);
       bear.position.set(0, 0.022, bz); pallet.add(bear);
     }
     const drum = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.16, 0.52, 14), this.rust);
@@ -417,7 +457,7 @@ export class Room {
       rib.rotation.x = Math.PI / 2; rib.position.set(opW / 2 - 0.17, ry2, -1.10); grp.add(rib);
     }
     // floor grating panel further down: breaks the flat floor of the hall
-    const grate = new THREE.InstancedMesh(new THREE.BoxGeometry(0.62, 0.012, 0.03), this.iron, 9);
+    const grate = new THREE.InstancedMesh(new THREE.BoxGeometry(0.62, 0.012, 0.03), this.tread, 9);
     for (let k = 0; k < 9; k++) { m2.compose(new V3(0, 0.012, -1.5 - k * 0.06), q2.identity(), new V3(1, 1, 1)); grate.setMatrixAt(k, m2); }
     grate.instanceMatrix.needsUpdate = true; grp.add(grate);
 
@@ -491,9 +531,10 @@ export class Room {
       map: this.metal.map, normalMap: this.metal.normalMap,
       normalScale: new THREE.Vector2(0.7, 0.7),
     });
-    const lintelMat = new THREE.MeshStandardMaterial({
-      color: 0x6d6a63, roughness: 0.98, metalness: 0.0,
-      map: this.rust.map, normalMap: this.rust.normalMap,
+    // Formed concrete, not tinted rust: the lintel and the pipes above it were
+    // sharing a pattern where they meet.
+    const lintelMat = this._mat(this._tex.tiledConcrete, 1.5, 1.5, {
+      color: 0x74706a, roughness: 0.98, metalness: 0.0,
       normalScale: new THREE.Vector2(2.2, 2.2),
     });
     const sillMat = new THREE.MeshStandardMaterial({
@@ -745,7 +786,7 @@ export class Room {
 
     // hinged louvre: pivot on the TOP edge, blades + backing plate below it
     const cover = new THREE.Group(); cover.position.set(0, hh, 0.055); grp.add(cover);
-    const plate = new THREE.Mesh(new THREE.BoxGeometry(O.w + 0.05, O.h + 0.04, 0.012), this.galv);
+    const plate = new THREE.Mesh(new THREE.BoxGeometry(O.w + 0.05, O.h + 0.04, 0.012), this.perf);
     plate.position.set(0, -O.h / 2, -0.004); plate.castShadow = plate.receiveShadow = true; cover.add(plate);
     const blades = new THREE.InstancedMesh(new THREE.BoxGeometry(O.w - 0.02, 0.045, 0.022), this.galv, 5);
     blades.castShadow = true;
@@ -1044,7 +1085,7 @@ export class Room {
     // the back wall and made it overlap the old desk — the two pieces of
     // furniture were inside each other. There is now one work surface, not two.
     const bench = new THREE.Group(); bench.position.set(-0.42, 0, 1.21); this.group.add(bench);
-    const top = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.06, 0.52), this.timber);
+    const top = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.06, 0.52), this.plywood);
     top.position.set(0, 0.88, 0); top.castShadow = top.receiveShadow = true; bench.add(top);
     // an apron under the front edge, so it is joinery and not a floating slab
     const apron = new THREE.Mesh(new THREE.BoxGeometry(0.95, 0.09, 0.03), this.painted);
@@ -1077,7 +1118,7 @@ export class Room {
     const chair = new THREE.Group(); chair.position.set(-0.42, 0, 0.86); chair.rotation.y = 0.22; this.group.add(chair);
     // tubular galvanised frame, aged ply seat, rubber feet: three substances,
     // where before the whole chair was the one generic metal.
-    const seatMat = this.timber, frameMat = this.galv;
+    const seatMat = this.plywood, frameMat = this.galv;
     const seat = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.035, 0.38), seatMat);
     seat.position.y = 0.44; seat.castShadow = seat.receiveShadow = true; chair.add(seat);
     // slight lip at the front of the pan
@@ -1116,7 +1157,7 @@ export class Room {
     const CW = 0.24, CH = 1.06, CD = 0.60;         // wall-depth, height, along-wall
     const cab = new THREE.Group(); cab.position.set(w - CW / 2 - 0.01, 1.02, 1.02); this.group.add(cab);
     // the enclosure: galvanised sheet, recessed back so the door has a rebate
-    const box2 = new THREE.Mesh(new THREE.BoxGeometry(CW, CH, CD), this.galv);
+    const box2 = new THREE.Mesh(new THREE.BoxGeometry(CW, CH, CD), this.enclosure);
     box2.castShadow = box2.receiveShadow = true; cab.add(box2);
     // returned flange all round the opening: this is the edge that makes it read
     for (const [sy, sz, py, pz] of [[0.035, CD, CH / 2 - 0.017, 0], [0.035, CD, -CH / 2 + 0.017, 0],
@@ -1133,7 +1174,7 @@ export class Room {
     brk.instanceMatrix.needsUpdate = true; cab.add(brk);
     // DIN rails the breakers clip onto
     for (const rz of [-0.13, 0.11]) {
-      const r2 = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.60, 0.035), this.alu);
+      const r2 = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.60, 0.035), this.rolled);
       r2.position.set(-0.075, 0.03, rz); cab.add(r2);
     }
     // the door: a shallow pressed panel with a rolled lip, on a real hinge line,
@@ -1195,7 +1236,7 @@ export class Room {
     // motor, discharge rising through an isolating valve and elbowing into the
     // wall — plus the plinth it is bolted to.
     const pump = new THREE.Group(); pump.position.set(1.24, 0, -1.05); this.group.add(pump);
-    const plinth = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.11, 0.40), this._mat(this._tex.concrete, 1, 1, { color: 0x3c3f43, roughness: 0.97 }));
+    const plinth = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.11, 0.40), this.formed);
     plinth.position.y = 0.055; plinth.castShadow = plinth.receiveShadow = true; pump.add(plinth);
     // holding-down bolts
     const hd = new THREE.InstancedMesh(new THREE.CylinderGeometry(0.011, 0.011, 0.05, 6), this.steel, 4);
@@ -1203,7 +1244,7 @@ export class Room {
       .forEach(([bx, bz], i) => { m.compose(new V3(1.24 + bx, 0.13, -1.05 + bz), q.identity(), new V3(1, 1, 1)); hd.setMatrixAt(i, m); });
     hd.instanceMatrix.needsUpdate = true; this.group.add(hd);
     // volute casing, lying on its axis the way a real pump does
-    const casing = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.17, 14), this.equip);
+    const casing = new THREE.Mesh(new THREE.CylinderGeometry(0.14, 0.14, 0.17, 14), this.greasy);
     casing.rotation.x = Math.PI / 2; casing.position.set(0, 0.24, -0.06);
     casing.castShadow = casing.receiveShadow = true; pump.add(casing);
     // electric motor: ribbed barrel + terminal box, coupled to the casing
@@ -1230,7 +1271,7 @@ export class Room {
     const stub = new THREE.Mesh(new THREE.CylinderGeometry(0.052, 0.052, 0.20, 10), this.rust);
     stub.rotation.z = Math.PI / 2; stub.position.set(0.175, 2.025, -0.06); pump.add(stub);
     // the isolating valve the wheel actually belongs to
-    const vBody = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.13, 12), this.equip);
+    const vBody = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.13, 12), this.dryMech);
     vBody.position.set(0, 0.92, -0.06); vBody.castShadow = true; pump.add(vBody);
     for (const fy of [0.855, 0.985]) {
       const fl2 = new THREE.Mesh(new THREE.CylinderGeometry(0.082, 0.082, 0.022, 12), this.metal);
@@ -1334,7 +1375,7 @@ export class Room {
     const emg = new THREE.PointLight(0x8a221a, 3.4, 6.5, 2);
     emg.position.copy(dome.position); this.group.add(emg);
     // a back plate, so the fitting is mounted to something
-    const emgBack = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.025, 12), this.metal);
+    const emgBack = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.025, 12), this.soot);
     emgBack.rotation.z = Math.PI / 2; emgBack.position.set(CONFIG.room.W / 2 - 0.022, 2.15, 1.2);
     emgBack.castShadow = true; this.group.add(emgBack);
     // A fire-alarm beacon whose driver has failed: it keeps trying to strobe,
