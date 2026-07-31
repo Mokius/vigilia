@@ -16,7 +16,7 @@ export const ENEMY_TYPES = [
     // The heavy. Tall, slow, long stares — takes the upright approaches.
     id: 'romero', name: 'ROMERO', modelKey: 'romero',
     height: 1.86,
-    routes: ['door', 'corridor', 'window'],
+    routes: ['corridor', 'window', 'door'],
     // The cross-corridor fly-by is gone. A silhouette walking left to right
     // behind the doorway reads as something wandering past on an errand, not as a
     // threat, and it undercut the front wall rather than charging it.
@@ -32,14 +32,18 @@ export const ENEMY_TYPES = [
     cueInterval: [3.0, 5.2], cues: ['footstep', 'knock'],
     eyeColor: 0xbfe0ff, weight: 3, minNight: 1,
     scream: 'shriek', face: 'gaunt',
-    jumpscareClip: 'jumpscare',      // zombie_neck_bite, trimmed
+    // THE SAME TAKE AS ROMERA. These were deliberately different so the two would
+    // not scare alike, and the result was simply that one of them was worse: the
+    // scream take reads as a cry where the attack take reads as being hit. The
+    // character differs, the staging must not.
+    jumpscareClip: 'jumpscareB',
   },
   {
     // The crawler. Lighter and quicker, and she comes up through the floor and
     // out of the duct, where the crawl takes belong.
     id: 'romera', name: 'ROMERA', modelKey: 'romera',
     height: 1.68,
-    routes: ['vent', 'hatch', 'door'],
+    routes: ['vent', 'hatch'],
     crossRoute: null,
     holdMin: 0.70, holdMax: 1.70,   // barely waits
     dashMin: 0.34, dashMax: 0.50,

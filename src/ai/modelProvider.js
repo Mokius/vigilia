@@ -194,6 +194,9 @@ export const CLIP_PLAN = {
   jumpscareB:{ clip: 'zombie_attack', rate: 1.15, loop: false, range: [0.55, 2.10] },
   // DRIVEN OFF BY THE LIGHT: no retreat take exists, so the walk runs backwards.
   retreat:   { clip: 'zombie_walk',      rate: -1.55, loop: true },
+  // and the same idea for anything on the floor: a crawler backs INTO its hole
+  // rather than standing up to leave
+  retreatCrawl: { clip: 'zombie_crawl',   rate: -1.45, loop: true },
   // and when the beam finally breaks it, it goes down
   banish:    { clip: 'zombie_dying',     rate: 1.35, loop: false },
   death:     { clip: 'zombie_death',     rate: 1.00, loop: false },
@@ -261,7 +264,8 @@ export function bindClips(animations) {
     const sub = (k, ...alts) => { if (!out[k]) for (const a of alts) if (out[a]) { out[k] = out[a]; return; } };
     sub('far', 'crawl', 'idle'); sub('emerge', 'crawl', 'idle');
     sub('crawlFast', 'crawl', 'run', 'walk'); sub('run', 'walk');
-    sub('retreat', 'walk', 'idle'); sub('banish', 'death', 'idle');
+    sub('retreat', 'walk', 'idle'); sub('retreatCrawl', 'retreat', 'crawl');
+    sub('banish', 'death', 'idle');
     sub('jumpscare', 'scream', 'attack'); sub('jumpscareB', 'jumpscare');
     sub('peek', 'idle'); sub('climb', 'walk');
     return out;
@@ -278,7 +282,8 @@ export function bindClips(animations) {
   }
   if (!out.idle && list.length) out.idle = { clip: list[0], rate: 1, loop: true };
   for (const k of ['walk', 'crawl', 'climb', 'scream', 'peek', 'run', 'far', 'emerge',
-                   'crawlFast', 'retreat', 'banish', 'attack', 'jumpscare', 'jumpscareB']) {
+                   'crawlFast', 'retreat', 'retreatCrawl', 'banish', 'attack',
+                   'jumpscare', 'jumpscareB']) {
     if (!out[k]) out[k] = out.walk || out.idle;
   }
   return out;

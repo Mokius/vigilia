@@ -448,6 +448,41 @@ export class AudioBus {
    * `step` is which notch it just moved to, so the first crack of a door and its
    * final swing sound different. Nothing plays once an access is already open.
    */
+  /**
+   * The wall clock striking the hour. A bell is a struck metal bar: a hard,
+   * inharmonic attack that decays into two or three surviving partials. Faking it
+   * with a sine gives a doorbell, so the strike is built from a detuned partial
+   * stack with a noise transient on the front — and it is deliberately QUIET and
+   * distant, because it is information, not a scare.
+   */
+  chime(hour = 0) {
+    if (!this.ready || !this.enabled) return;
+    const ctx = this.ctx, t = this._now(), { head } = this._out(0.15, 0.5);
+    // A real bell's partials are not integer multiples; these ratios are roughly
+    // those of a small cast bell, which is what stops it sounding like a synth.
+    const f0 = 452;
+    const parts = [[1.0, 0.55, 2.6], [2.02, 0.30, 1.9], [2.97, 0.18, 1.2],
+                   [4.18, 0.10, 0.8], [5.42, 0.06, 0.55]];
+    for (const [mult, amp, dur] of parts) {
+      const o = ctx.createOscillator(); o.type = 'sine';
+      o.frequency.setValueAtTime(f0 * mult, t);
+      // every partial drifts down a little as the bar cools: keeps it from ringing
+      // mechanically flat
+      o.frequency.linearRampToValueAtTime(f0 * mult * 0.994, t + dur);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, t);
+      g.gain.linearRampToValueAtTime(amp * 0.10, t + 0.004);
+      g.gain.exponentialRampToValueAtTime(0.0004, t + dur);
+      o.connect(g); g.connect(head); o.start(t); o.stop(t + dur + 0.05);
+    }
+    // the hammer itself: a click, without which the bell has no beginning
+    const n = this._noiseSrc();
+    const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 2600; bp.Q.value = 3;
+    const ng = ctx.createGain();
+    ng.gain.setValueAtTime(0.05, t); ng.gain.exponentialRampToValueAtTime(0.0004, t + 0.05);
+    n.connect(bp); bp.connect(ng); ng.connect(head); n.start(t); n.stop(t + 0.08);
+  }
+
   accessSound(kind, step = 1, pan = 0, closing = false) {
     if (!this.ready || !this.enabled) return;
     const ctx = this.ctx, t = this._now(), { head } = this._out(pan, 0.12);
@@ -596,11 +631,53 @@ export class AudioBus {
       rg2.connect(head);
       rn.start(t); rn.stop(t + dur * 1.6);
     } else {   // hatch / grate
-      // cast iron shoved on concrete: impact then a gritty scrape
-      const o = ctx.createOscillator(); o.type = 'sine';
-      o.frequency.setValueAtTime(120, t); o.frequency.exponentialRampToValueAtTime(46, t + 0.22);
-      const g = ctx.createGain(); g.gain.setValueAtTime(0.55, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.3);
-      o.connect(g); g.connect(head); o.start(t); o.stop(t + 0.32);
+      // ---- MODAL, NOT A PITCH SWEEP -----------------------------------------
+      // The old impact was a sine falling 120 -> 46 Hz, and a descending glide is
+      // the single most cartoon-like gesture in sound design: nothing struck in the
+      // real world changes pitch as it rings. A cast-iron grating dropped on
+      // concrete is a noise burst exciting a handful of FIXED modes, each decaying
+      // at its own rate — the low ones long, the high ones almost instantly. That
+      // is what tells the ear how heavy something is, and it is the whole reason
+      // this access never felt like a hundredweight of iron.
+      const modes = [[62, 0.90, 1.15], [88, 0.62, 0.85], [143, 0.40, 0.42],
+                     [227, 0.24, 0.24], [356, 0.14, 0.13], [611, 0.08, 0.07]];
+      for (const [f, amp, dur] of modes) {
+        const n0 = this._noiseSrc();
+        const bq0 = ctx.createBiquadFilter(); bq0.type = 'bandpass';
+        bq0.frequency.value = f;
+        // Q rises with frequency so the low modes are broad and thuddy while the
+        // high ones ring: a uniform Q makes every mode sound like the same bell.
+        bq0.Q.value = 6 + f / 55;
+        const g0 = ctx.createGain();
+        g0.gain.setValueAtTime(0.0001, t);
+        g0.gain.linearRampToValueAtTime(amp * (0.30 + k * 0.10), t + 0.003);
+        g0.gain.exponentialRampToValueAtTime(0.0004, t + dur);
+        n0.connect(bq0); bq0.connect(g0); g0.connect(head);
+        n0.start(t); n0.stop(t + dur + 0.05);
+      }
+      // and the weight underneath it: a sub you feel rather than hear, with no
+      // pitch movement at all
+      const sub0 = ctx.createOscillator(); sub0.type = 'sine';
+      sub0.frequency.value = 41;
+      const sg0 = ctx.createGain();
+      sg0.gain.setValueAtTime(0.0001, t);
+      sg0.gain.linearRampToValueAtTime(0.55, t + 0.006);
+      sg0.gain.exponentialRampToValueAtTime(0.0004, t + 0.55);
+      sub0.connect(sg0); sg0.connect(head); sub0.start(t); sub0.stop(t + 0.6);
+      // the hinge taking the load: a slow groan, amplitude-wobbled rather than
+      // pitch-wobbled, which is how a stiff pin under weight actually behaves
+      const hg = ctx.createOscillator(); hg.type = 'sawtooth';
+      hg.frequency.value = 74 - k * 6;
+      const hf = ctx.createBiquadFilter(); hf.type = 'bandpass'; hf.frequency.value = 420; hf.Q.value = 7;
+      const hgn = ctx.createGain();
+      hgn.gain.setValueAtTime(0.0001, t + 0.02);
+      hgn.gain.linearRampToValueAtTime(0.16 + k * 0.05, t + 0.14);
+      hgn.gain.exponentialRampToValueAtTime(0.0004, t + 0.9 + k * 0.25);
+      const wob = ctx.createOscillator(); wob.type = 'triangle'; wob.frequency.value = 11 - k * 2;
+      const wg = ctx.createGain(); wg.gain.value = 0.09; wob.connect(wg); wg.connect(hgn.gain);
+      hg.connect(hf); hf.connect(hgn); hgn.connect(head);
+      hg.start(t + 0.02); wob.start(t + 0.02);
+      hg.stop(t + 1.2 + k * 0.3); wob.stop(t + 1.2 + k * 0.3);
       if (k > 0 || closing) {
         const n = this._noiseSrc();
         const bp = ctx.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 1700; bp.Q.value = 2.2;

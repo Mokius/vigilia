@@ -40,6 +40,8 @@ export class Game {
     this._dwell = {};
     // Every physical state change of an access reports its own mechanical sound.
     this.room.onAccessSound = (kind, step, pan, closing) => this.audio.accessSound(kind, step, pan, closing);
+    // the wall clock striking: one hit per hour of the shift
+    this.room.onHour = (h) => this.audio.chime(h);
     // A dedicated lamp that only exists to light the creature's face during a
     // jumpscare. A scare you cannot SEE is not a scare.
     this.scareLight = new THREE.PointLight(0xffe7cf, 0, 3.0, 2);
@@ -116,6 +118,11 @@ export class Game {
     // held at 1 from the impact frame (set in _onScare); only the decay is damped
     if (this.state !== GState.SCARE) this.scareFX = damp(this.scareFX, 0, 6, dt);
     this.shake = damp(this.shake, 0, 3.2, dt);
+    // `flash` was only ever decayed inside tickScare, so the value the vanish
+    // glitch writes below had nothing to bring it back down during play: expelling
+    // one creature left a permanent white wash over everything. Anything that
+    // raises a post-process parameter outside the scare has to be decayed here.
+    this.flash = damp(this.flash, 0, 9, dt);
     if (this._glitchT > 0) {
       this._glitchT -= dt;
       const k = clamp(this._glitchT / 0.42, 0, 1);

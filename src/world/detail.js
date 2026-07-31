@@ -442,6 +442,15 @@ export function addDoorDetail(room) {
   if (!pivot) return;
   const F = CONFIG.fonts;
 
+  // ---- EVERYTHING HERE WAS 1.02 m TOO HIGH -------------------------------
+  // The hinge pivot sits at y=1.02 (half the leaf height), but every position
+  // below was written as a height ABOVE THE FLOOR — so the whole ironmongery was
+  // offset by the pivot's own height: the vision panel and its wire mesh floated
+  // clear above the top of the leaf and swung around with it, the kick plate was
+  // at waist level and the upper hinges were in mid-air. Y0 puts the numbers back
+  // into the leaf's own frame, so they can keep reading as heights off the floor.
+  const Y0 = -1.02;
+
   // THE LEAF LIES IN THE X-Y PLANE AND IS 6 cm THICK. Every piece of hardware
   // below was laid out as if it lay in X-Z: the number plate was rotated 90 deg so
   // it stood edge-on like a fin, the vision panel was 26 cm deep through a 6 cm
@@ -455,7 +464,7 @@ export function addDoorDetail(room) {
     c.font = Math.round(H * 0.55) + 'px ' + F.stencil;
     c.fillText('L-03', W / 2, H * 0.54);
   }, { px: 256 });
-  plate.position.set(0.62, 1.66, 0.034);      // flat ON the leaf face
+  plate.position.set(0.62, 1.66 + Y0, 0.034);      // flat ON the leaf face
   pivot.add(plate);
 
   // wire-glass vision panel: 26 cm across the leaf, 4 cm through it
@@ -466,22 +475,22 @@ export function addDoorDetail(room) {
       color: 0x0b0f12, roughness: 0.34, metalness: 0,
       transparent: true, opacity: 0.66, ior: 1.4, specularIntensity: 0.9,
     }));
-  vision.position.set(0.62, 1.30, 0.006); pivot.add(vision);
+  vision.position.set(0.62, 1.30 + Y0, 0.006); pivot.add(vision);
   // a returned frame around the glass, so it is set INTO the leaf
   for (const [sx, sy, px, py] of [[0.30, 0.03, 0, 0.185], [0.30, 0.03, 0, -0.185],
                                   [0.03, 0.40, -0.145, 0], [0.03, 0.40, 0.145, 0]]) {
     const fr = new THREE.Mesh(new THREE.BoxGeometry(sx, sy, 0.05), room.galv);
-    fr.position.set(0.62 + px, 1.30 + py, 0.010); fr.castShadow = true; pivot.add(fr);
+    fr.position.set(0.62 + px, 1.30 + Y0 + py, 0.010); fr.castShadow = true; pivot.add(fr);
   }
   // the wire mesh inside the glass, in the leaf's own plane
   const wire = new THREE.InstancedMesh(new THREE.BoxGeometry(0.004, 0.30, 0.004), room.stainless, 12);
   const mm = new THREE.Matrix4(), qq = new THREE.Quaternion();
   for (let i = 0; i < 6; i++) {                       // verticals, spread in X
-    mm.compose(new V3(0.62 - 0.10 + i * 0.04, 1.30, 0.028), qq.identity(), new V3(1, 1, 1));
+    mm.compose(new V3(0.62 - 0.10 + i * 0.04, 1.30 + Y0, 0.028), qq.identity(), new V3(1, 1, 1));
     wire.setMatrixAt(i, mm);
   }
   for (let i = 0; i < 6; i++) {                       // horizontals, spread in Y
-    mm.compose(new V3(0.62, 1.16 + i * 0.056, 0.028),
+    mm.compose(new V3(0.62, 1.16 + Y0 + i * 0.056, 0.028),
       qq.setFromEuler(new THREE.Euler(0, 0, Math.PI / 2)), new V3(0.85, 0.85, 0.85));
     wire.setMatrixAt(6 + i, mm);
   }
@@ -490,15 +499,15 @@ export function addDoorDetail(room) {
   // kick plate + hinges + push bar: hardware sells it
   // aluminium kick plate: a different metal from the leaf it is screwed to
   const kick = new THREE.Mesh(new THREE.BoxGeometry(0.96, 0.22, 0.014), room.tread);
-  kick.position.set(0.51, 0.17, 0.04); kick.castShadow = true; pivot.add(kick);
-  for (const hy of [0.3, 1.02, 1.76]) {
+  kick.position.set(0.51, 0.17 + Y0, 0.04); kick.castShadow = true; pivot.add(kick);
+  for (const hy of [0.3 + Y0, 1.02 + Y0, 1.76 + Y0]) {
     const hinge = new THREE.Mesh(new THREE.CylinderGeometry(0.023, 0.023, 0.11, 8), room.stainless);
     hinge.position.set(0.015, hy, 0); hinge.castShadow = true; pivot.add(hinge);
   }
   const bar = new THREE.Mesh(new THREE.BoxGeometry(0.72, 0.042, 0.042), room.stainless);
-  bar.position.set(0.5, 0.98, 0.072); bar.castShadow = true; pivot.add(bar);
+  bar.position.set(0.5, 0.98 + Y0, 0.072); bar.castShadow = true; pivot.add(bar);
   for (const bx of [0.20, 0.80]) {
     const st = new THREE.Mesh(new THREE.BoxGeometry(0.035, 0.035, 0.055), room.tech);
-    st.position.set(bx, 0.98, 0.048); pivot.add(st);
+    st.position.set(bx, 0.98 + Y0, 0.048); pivot.add(st);
   }
 }

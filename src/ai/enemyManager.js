@@ -10,6 +10,8 @@ import { ENEMY_TYPES, nightParams } from './enemyTypes.js';
 import { ROUTES } from './routes.js';
 import { mulberry32, randRange } from '../core/util.js';
 
+const ALL_ROUTES = ['door', 'vent', 'hatch', 'corridor', 'window'];
+
 const LIVE = (e) => e.state !== EState.DONE;
 const THREATENING = (e) => e.state === EState.APPROACH || e.state === EState.ATTACK;
 
@@ -54,25 +56,40 @@ export class EnemyManager {
     if (this.room.resetAccesses) this.room.resetAccesses();
   }
 
+  // The five ways into the room. Kept here rather than derived from the cast, so
+  // adding a creature cannot quietly change how often an entrance is used.
+  static get ROUTES() { return ALL_ROUTES; }
+
   _busyRoutes() { return new Set(this.enemies.filter(LIVE).map((e) => e.routeName)); }
 
   _spawn() {
     const busy = this._busyRoutes();
-    const pool = ENEMY_TYPES.filter((t) => t.minNight <= this.night
-      && t.routes.some((r) => !busy.has(r)));
-    if (!pool.length) return;
-    const bag = []; for (const t of pool) for (let i = 0; i < t.weight; i++) bag.push(t);
-    const type = bag[(this.rng() * bag.length) | 0];
 
-    // Sometimes it's just a fly-by across the corridor: a scare with no threat.
-    let routeName;
-    if (type.crossRoute && !busy.has(type.crossRoute) && this.rng() < this.params.crossChance) {
-      routeName = type.crossRoute;
-    } else {
-      const free = type.routes.filter((r) => !busy.has(r));
-      if (!free.length) return;
-      routeName = free[(this.rng() * free.length) | 0];
+    // ---- ROUTE FIRST, THEN CREATURE ---------------------------------------
+    // This used to pick the creature and then one of ITS routes, which handed
+    // romero's three entrances 16.7% each and romera's two 25% each — five ways in
+    // with five different frequencies, and no memory either, so the same door could
+    // come twice running. The player's job is to watch five places, so all five
+    // have to earn attention equally. Choose the WAY IN first, penalise whatever
+    // has been used lately, and only then ask which creature uses that entrance.
+    const usable = ALL_ROUTES.filter((r) => !busy.has(r)
+      && ENEMY_TYPES.some((t) => t.minNight <= this.night && t.routes.includes(r)));
+    if (!usable.length) return;
+    this._recent = this._recent || [];
+    const bag = [];
+    for (const r of usable) {
+      const age = this._recent.lastIndexOf(r);
+      // most recent gets weight 1, the one before 2, and so on; unused gets 6
+      const w = age < 0 ? 6 : (this._recent.length - age);
+      for (let i = 0; i < w; i++) bag.push(r);
     }
+    const routeName = bag[(this.rng() * bag.length) | 0];
+    this._recent.push(routeName);
+    while (this._recent.length > 3) this._recent.shift();
+
+    const cands = ENEMY_TYPES.filter((t) => t.minNight <= this.night && t.routes.includes(routeName));
+    if (!cands.length) return;
+    const type = cands[(this.rng() * cands.length) | 0];
 
     // Later nights don't move faster — they WAIT LESS. The dash is already
     // near-instant, so pressure comes from shorter, more erratic stillness.

@@ -64,6 +64,11 @@ const STEPS = [
   },
 ];
 
+// Nothing in the guided night may take longer than this. It is a backstop, not a
+// pacing value: every step has its own completion test, and this only fires when
+// one of those tests cannot be satisfied.
+const STEP_LIMIT = 26;
+
 export class Tutorial {
   constructor({ game, room, flashlight, audio, manager, pickups }) {
     Object.assign(this, { game, room, flashlight, audio, manager, pickups });
@@ -125,7 +130,11 @@ export class Tutorial {
     if (s.route) {
       // demoLock 2: it must physically work the access open and come through
       // before the light can send it back. That is the lesson.
-      this.current = this.manager.spawnOn(s.route, { harmless: true, holdMul: 1.6, demoLock: 2 });
+      // demoLock 1, not 2. At 2 the beam could not touch it until it was fully
+      // inside, which needed the access two thirds open — and every retreat pulled
+      // that back to zero, so the condition was often unreachable. At 1 it has
+      // leant into the opening and is plainly visible, which is enough of a lesson.
+      this.current = this.manager.spawnOn(s.route, { harmless: true, holdMul: 1.6, demoLock: 1 });
     }
   }
 
@@ -149,15 +158,24 @@ export class Tutorial {
     // ---- completion (fires exactly once) -----------------------------------
     if (!this._done) {
       if (s.route) {
-        // done when the demo creature has been driven off and is gone
+        // THE LESSON IS "you drove it off", so that is what is measured — not a
+        // state the object happens to be in when we look. Waiting for done/hide
+        // meant a creature that retreated, closed the door behind it and started
+        // over never satisfied the check, and the step hung for ever.
         const c = this.current;
-        const gone = !c || c.state === 'done' || c.state === 'hide';
-        if (gone && this.t > 2.0) {
+        const beaten = !c || c.repelled || c.state === 'done' || c.state === 'hide';
+        if (beaten && this.t > 2.0) {
           this._done = true;
           this.say('Bien. Así se les echa', 2.4);
           this._advanceAfter = 2.4;
+        } else if (this.t > STEP_LIMIT) {
+          // BACKSTOP. A scripted sequence must never be able to trap the player,
+          // whatever goes wrong behind it — so every step has a ceiling, and going
+          // over it moves on with a line that does not pretend they succeeded.
+          this._done = true;
+          this.say('Déjalo. Sigamos', 2.2);
+          this._advanceAfter = 2.2;
         }
-        // it can never win: if it somehow reaches the end it just leaves
       } else if (s.done) {
         if (s.done(this)) {
           this._done = true;
@@ -165,6 +183,9 @@ export class Tutorial {
           this._advanceAfter = s.after ? 3.2 : 1.8;
         }
       } else if (s.hold && this.t > s.hold) {
+        this._done = true;
+        this._advanceAfter = 0.01;
+      } else if (!s.hold && this.t > STEP_LIMIT) {
         this._done = true;
         this._advanceAfter = 0.01;
       }

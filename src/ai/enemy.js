@@ -50,6 +50,32 @@ const RETREAT_PAUSE = 0.34;
 // body is destroyed inside this window.
 const VANISH_COVER = 0.42;
 
+// ---- BLEND TIMES, in seconds ------------------------------------------------
+// Tuned per transition rather than globally: the same number cannot serve both
+// "shamble into a sprint" and "walk into a lunge".
+const BLEND = {
+  default: 0.30,
+  immediate: 0.12,        // asked for at once, but never a hard cut
+  locomotion: 0.38,       // walk/run/crawl between themselves: long overlap
+  intoImpact: 0.14,       // anything that lands a hit has to arrive sharply
+  // the specific edits that matter most
+  'walk>run': 0.34,
+  'run>walk': 0.40,
+  'crawl>crawlFast': 0.30,
+  'crawlFast>crawl': 0.36,
+  'emerge>crawl': 0.45,   // pushing out of a duct into a crawl: one movement
+  'crawl>walk': 0.55,     // getting UP off the floor needs the longest blend here
+  'climb>walk': 0.50,     // over the sill, then straightening
+  'walk>scream': 0.16,
+  'walk>attack': 0.12,
+  'attack>retreat': 0.26,
+  'retreat>walk': 0.34,
+  'idle>walk': 0.32,
+  'peek>walk': 0.30,
+};
+const LOCOMOTION = new Set(['walk', 'run', 'crawl', 'crawlFast', 'far', 'climb', 'retreat', 'retreatCrawl']);
+const IMPACT = new Set(['attack', 'scream', 'jumpscare', 'jumpscareB', 'banish']);
+
 const HEAD_BONE_RE = /(mixamorig\d*)?:?head$/i;
 
 // scratch, so the per-frame head aim allocates nothing
@@ -178,10 +204,49 @@ export class Enemy {
     const rate = (entry.rate || 1) * (this._clipRate || 1);
     next.timeScale = rate;
     if (rate < 0) next.time = entry.clip.duration;
-    if (this._curAction && !immediate) this._curAction.crossFadeTo(next.play(), 0.28, false);
-    else { if (this._curAction) this._curAction.stop(); next.play(); }
+
+    // ---- EVERY CHANGE IS BLENDED --------------------------------------------
+    // `immediate` used to mean stop-dead-and-start, and almost every caller
+    // passed it: spawning, dashing, retreating, screaming. The result was a hard
+    // pose snap on nearly every transition, which is what made the creatures read
+    // as puppets. Now `immediate` only means "do not wait" — it still blends, just
+    // over a short window — and the true zero-length cut is reserved for the very
+    // first pose, where there is nothing to blend FROM.
+    //
+    // The durations are per PAIR, because a stagger into a run and a walk into a
+    // scream are not the same edit: locomotion changes want a real overlap so the
+    // feet keep reading, while anything with an impact in it wants to arrive fast
+    // or it loses its punch.
+    const prev = this._curIntent;
+    let fade = BLEND.default;
+    if (!this._curAction) fade = 0;
+    else if (immediate) fade = BLEND.immediate;
+    else {
+      const key = prev + '>' + intent;
+      if (BLEND[key] !== undefined) fade = BLEND[key];
+      else if (LOCOMOTION.has(prev) && LOCOMOTION.has(intent)) fade = BLEND.locomotion;
+      else if (IMPACT.has(intent)) fade = BLEND.intoImpact;
+    }
+    if (this._curAction && fade > 0) {
+      // warp:false — the two clips run at their own rates through the overlap.
+      // Warping them to a common duration slews the footfalls, which reads worse
+      // than the cut it replaces.
+      this._curAction.crossFadeTo(next.play(), fade, false);
+    } else {
+      if (this._curAction) this._curAction.stop();
+      next.play();
+    }
     this._curAction = next; this._curClip = entry.clip; this._curIntent = intent;
     this._curRate = entry.rate || 1;
+  }
+
+  /**
+   * The reverse of whatever this creature moves like. There is no backing-away
+   * take in the pack, so a locomotion cycle is run at a negative rate — but WHICH
+   * cycle has to match the body: crawling things retreat crawling.
+   */
+  _retreatIntent() {
+    return CRAWL_STAGES.has(this.stage) ? 'retreatCrawl' : 'retreat';
   }
 
   /** Which of the three readable positions this station belongs to. */
@@ -330,8 +395,16 @@ export class Enemy {
     const o = this.room.accessOpenness(acc);
     const needed = Math.min(station, o.steps);
     if (o.state < needed) return false;
-    // wait for the leaf/grate/grate to actually be there, and to stop moving
-    return o.anim >= (needed / o.steps) - 0.05 && !o.moving;
+    // ASK THE APERTURE HOW WIDE IT IS. The old test also required !o.moving, and
+    // once a creature could physically LEAN on an access (the push added in the
+    // previous phase) its own shove kept `moving` true permanently — so the gate
+    // never opened and nothing could ever cross the door, the duct or the hatch.
+    // That deadlocked the guided night at the door step, and in normal play it
+    // left only the corridor and the window working, which is why those two
+    // looked like the only accesses in the game.
+    // A push can reach at most 55% of the way to the next notch, so it can never
+    // clear this on its own: the notch still has to release, with its sound.
+    return o.anim >= (needed / o.steps) - 0.04;
   }
 
   /** Snap to another station in a fraction of a second. */
@@ -351,8 +424,11 @@ export class Enemy {
     // Backing away has to KEEP the reverse cycle. This was calling _intentNow()
     // unconditionally, which handed the forward walk straight back and wiped the
     // retreat the caller had just started — so nothing ever visibly reversed.
+    // It goes back the way it came, in the gait it came in: something that
+    // crawled out of a duct crawls back into it, it does not stand up and walk
+    // backwards. Same waypoints, same locomotion, reversed.
     const retreating = this.state === EState.RETREAT || to < this.station;
-    this._playIntent(retreating ? 'retreat' : this._intentNow(true), true);
+    this._playIntent(retreating ? this._retreatIntent() : this._intentNow(true), true);
   }
 
   /** Shadow casting is budgeted by the manager (only the nearest few). */
@@ -508,6 +584,13 @@ export class Enemy {
       const react = LIGHT_REACT * (this.banishMul || 1);
       if (this.state === EState.APPROACH && canBeRepelled && this.litT >= react) {
         this.state = EState.RETREAT;
+        // Remembered for good. The guided night needs to know that the PLAYER
+        // succeeded, and it cannot read that off the state machine: a creature
+        // that is driven off, pulls its access shut behind it and then works it
+        // open again is back in APPROACH at station 0 with the access at zero —
+        // indistinguishable from one that never met the beam at all. That loop is
+        // exactly where the tutorial hung.
+        this.repelled = true;
         this._playIntent('retreat', true);
         ev.push({ type: 'banish', payload: { pan: this.pan, name: this.type.name } });
         this._beginDash(Math.max(0, this.station - 1));
@@ -518,7 +601,14 @@ export class Enemy {
       // position at a time with a real pause between each — long enough to read
       // as "it stopped to look at me again" rather than a slide to the exit.
       if (this.state === EState.RETREAT) {
-        if (beamOn) { this.holdT = Math.min(this.holdT, RETREAT_PAUSE); this._offBeamT = 0; }
+        if (beamOn) {
+          this.holdT = Math.min(this.holdT, RETREAT_PAUSE);
+          this._offBeamT = 0;
+          // keep the reverse cycle running for as long as the beam holds, so the
+          // pauses between backward steps are still it giving ground rather than
+          // it standing idle
+          this._playIntent(this._retreatIntent());
+        }
         else {
           this._offBeamT = (this._offBeamT || 0) + dt;
           if (this._offBeamT > 0.9 && this.station > 0) { this.state = EState.APPROACH; this._offBeamT = 0; }

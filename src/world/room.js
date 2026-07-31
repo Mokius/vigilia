@@ -382,17 +382,22 @@ export class Room {
     // the spawner has somewhere varied to draw from every time (see PickupField:
     // it picks one when it needs one and excludes the recent ones, instead of
     // seeding a fixed layout at the start of the night).
+    // ---- THE CUBE HAS NO REAR SCREEN ---------------------------------------
+    // Ten spots, and NINE of them sat at z > 0.8 — on the bench, the shelving, the
+    // crates, the cabinet, all behind the player's shoulders where there is no
+    // panel to project them onto. A cell there is not hidden, it is unrenderable:
+    // the only way to find it was to already know. Every spot now sits forward of
+    // z = 0.2, so all of them land on the left, front, right or floor surface, and
+    // each one is on a real object at a plausible height.
     this.pickupSpots = [
-      { pos: new V3(-0.72, 0.94, 1.18), pan: -0.40 },  // bench, left end
-      { pos: new V3(-0.12, 0.94, 1.14), pan: -0.10 },  // bench, right end
-      { pos: new V3(-0.42, 0.27, 1.21), pan: -0.30 },  // bench lower shelf (makes you crouch)
-      { pos: new V3(-1.34, 0.98, 1.30), pan: -0.85 },  // shelving, top shelf
-      { pos: new V3(-1.34, 0.68, 1.08), pan: -0.85 },  // shelving, middle shelf
-      { pos: new V3(-0.42, 0.48, 0.86), pan: -0.35 },  // left on the chair
-      { pos: new V3(1.36, 1.50, 1.05), pan: 0.85 },    // top of the breaker cabinet
-      { pos: new V3(0.76, 1.11, 1.26), pan: 0.45 },    // top of the stacked crate
-      { pos: new V3(0.42, 0.56, 1.34), pan: 0.25 },    // the low crate
-      { pos: new V3(1.24, 0.12, -1.05), pan: 0.70 },   // pump plinth (faces the window)
+      { pos: new V3(1.24, 0.14, -1.02), pan: 0.72 },   // pump plinth        RIGHT
+      { pos: new V3(1.22, 0.44, -0.88), pan: 0.70 },   // pump casing top    RIGHT
+      { pos: new V3(1.30, 0.40, -0.15), pan: 0.85 },   // the window sill    RIGHT
+      { pos: new V3(-1.36, 0.66, -0.52), pan: -0.85 }, // bracket shelf      LEFT
+      { pos: new V3(-1.36, 0.30, -0.30), pan: -0.85 }, // its lower tier     LEFT
+      { pos: new V3(1.00, 0.06, 0.14), pan: 0.42 },    // slab by the hatch  FLOOR
+      { pos: new V3(-0.44, 0.06, -1.18), pan: -0.18 }, // slab at the threshold FLOOR
+      { pos: new V3(0.46, 0.54, -2.72), pan: 0.10 },   // drum down the hall FRONT
     ];
   }
 
@@ -547,8 +552,67 @@ export class Room {
     // from room furniture: brushing your own doorframe is not a defect.
     const grp = new THREE.Group(); grp.position.copy(pos); grp.rotation.y = ry; this.group.add(grp);
     grp.userData.access = 'door';
-    const recess = new THREE.Mesh(new THREE.BoxGeometry(1.06, 2.1, 1.0), this.voidMat);
-    recess.position.set(0, 1.05, -0.55); recess.receiveShadow = true; grp.add(recess);
+    // ---- THERE IS A BUILDING ON THE OTHER SIDE ----------------------------
+    // An empty black box behind a door does not read as another room, it reads as
+    // the edge of the level. Everything below is in DOOR-LOCAL space, where local z
+    // is depth into the recess and local x runs along the room's z — and all of it
+    // is kept clear of local |x| < 0.30, because that is the lane the creature
+    // stands in at its first two waypoints.
+    const RD = 1.35;                                   // how deep the space goes
+    const recess = new THREE.Mesh(new THREE.BoxGeometry(1.06, 2.1, RD), this.voidMat);
+    recess.position.set(0, 1.05, -RD / 2 - 0.05); recess.receiveShadow = true; grp.add(recess);
+    // the far wall of that room, in block rather than the room's own finishes
+    const farW = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 2.1), this.formed);
+    farW.position.set(0, 1.05, -RD - 0.05); grp.add(farW);
+    // A WAY ON. One side of it opens into a passage that carries on out of sight,
+    // which is the single strongest cue that the building continues.
+    const onward = new THREE.Mesh(new THREE.BoxGeometry(0.52, 1.95, 1.1), this.voidMat);
+    onward.position.set(0.52, 0.97, -RD - 0.55); grp.add(onward);
+    for (const oz of [-RD - 0.06, -RD - 1.02]) {
+      const oj = new THREE.Mesh(new THREE.BoxGeometry(0.05, 1.95, 0.06), this.frameSteel);
+      oj.position.set(0.30, 0.97, oz); oj.castShadow = true; grp.add(oj);
+    }
+    // SERVICES running through it, along the ceiling where nothing walks
+    for (const [py, pr] of [[1.94, 0.045], [1.82, 0.032], [1.70, 0.026]]) {
+      const pp = new THREE.Mesh(new THREE.CylinderGeometry(pr, pr, 1.05, 8), this.pipePaint);
+      pp.rotation.x = Math.PI / 2; pp.position.set(-0.34, py, -RD / 2);
+      pp.castShadow = true; grp.add(pp);
+    }
+    // a cable tray with rungs, opposite the pipes
+    const trR = new THREE.Mesh(new THREE.BoxGeometry(0.02, 0.05, 1.05), this.duct);
+    trR.position.set(0.40, 1.90, -RD / 2); grp.add(trR);
+    const trU = new THREE.InstancedMesh(new THREE.BoxGeometry(0.16, 0.01, 0.02), this.duct, 6);
+    const mT = new THREE.Matrix4(), qT = new THREE.Quaternion();
+    for (let i = 0; i < 6; i++) { mT.compose(new V3(0.47, 1.87, -0.18 - i * 0.19), qT.identity(), new V3(1, 1, 1)); trU.setMatrixAt(i, mT); }
+    trU.instanceMatrix.needsUpdate = true; grp.add(trU);
+    // A MACHINE, hard against the side so the lane stays clear
+    const mBox = new THREE.Mesh(new THREE.BoxGeometry(0.30, 0.86, 0.42), this.boxPaint);
+    mBox.position.set(-0.36, 0.43, -RD + 0.30); mBox.castShadow = mBox.receiveShadow = true; grp.add(mBox);
+    const mMot = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.09, 0.24, 12), this.greasy);
+    mMot.rotation.z = Math.PI / 2; mMot.position.set(-0.36, 0.98, -RD + 0.30); mMot.castShadow = true; grp.add(mMot);
+    // a valve on a riser beside it: the vocabulary of a plant room
+    const vRis = new THREE.Mesh(new THREE.CylinderGeometry(0.038, 0.038, 1.6, 8), this.greasy);
+    vRis.position.set(-0.44, 0.80, -RD + 0.62); grp.add(vRis);
+    const vWh = new THREE.Mesh(new THREE.TorusGeometry(0.075, 0.012, 5, 12), this.dryMech);
+    vWh.rotation.y = Math.PI / 2; vWh.position.set(-0.44, 1.16, -RD + 0.62); grp.add(vWh);
+    // SIGNAGE, because a real corridor tells you where it goes
+    const wayTag = paintedPlate(0.30, 0.11, (c, W, H) => {
+      c.fillStyle = '#1a1d1a'; c.fillRect(0, 0, W, H);
+      c.fillStyle = '#b9bfa8'; c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.font = Math.round(H * 0.50) + 'px ' + CONFIG.fonts.stencil;
+      c.fillText('SECTOR 4', W / 2, H * 0.55);
+    }, { px: 256 });
+    wayTag.rotation.y = -Math.PI / 2;
+    wayTag.position.set(0.28, 1.42, -RD - 0.30); grp.add(wayTag);
+    // AND LIGHT. Without a source in there the whole thing is invisible until the
+    // torch happens to point through the gap; a failing tube on the far wall makes
+    // the space exist on its own, and backlights anything standing in the doorway.
+    const beyondLamp = new THREE.PointLight(0x9fb4c4, 1.05, 2.4, 2);
+    beyondLamp.position.set(0.18, 1.86, -RD + 0.18); grp.add(beyondLamp);
+    const beyondTube = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.05, 0.07),
+      new THREE.MeshBasicMaterial({ color: 0x2b3a44, toneMapped: false }));
+    beyondTube.position.set(0.18, 1.92, -RD + 0.18); beyondTube.rotation.y = Math.PI / 2; grp.add(beyondTube);
+    this.beyondDoorLight = beyondLamp;
     const jamb = (x) => { const m = new THREE.Mesh(new THREE.BoxGeometry(0.1, 2.14, 0.17), this.frameSteel); m.position.set(x, 1.07, 0); m.castShadow = m.receiveShadow = true; grp.add(m); };
     jamb(-0.56); jamb(0.56);
     const lintel = new THREE.Mesh(new THREE.BoxGeometry(1.24, 0.14, 0.17), this.frameSteel);
@@ -828,6 +892,41 @@ export class Room {
     farFloor.rotation.x = -Math.PI / 2;
     farFloor.position.set(0, -O.h * 0.5 - 0.01, -0.85); grp.add(farFloor);
 
+    // ---- AND WHAT MAKES IT A MACHINE HALL --------------------------------
+    // A ladder and a box could be any dark room. What names this one is the
+    // vocabulary of a plant: a switchboard with breaker rows, a valve station, a
+    // motor on its bedplate. All of it in `beyond` or `farLit` so it stays a
+    // silhouette — the point is to be recognised, not examined.
+    // a switchboard on the far wall, with rows of breakers
+    const swb = new THREE.Mesh(new THREE.BoxGeometry(0.40, 0.62, 0.10), farLit);
+    swb.position.set(-0.28, O.h * 0.06, -DEPTH_W + 0.07); grp.add(swb);
+    const swBrk = new THREE.InstancedMesh(new THREE.BoxGeometry(0.028, 0.05, 0.02), beyond, 14);
+    const mS2 = new THREE.Matrix4(), qS2 = new THREE.Quaternion();
+    for (let i = 0; i < 14; i++) {
+      mS2.compose(new V3(-0.28 - 0.13 + (i % 7) * 0.043, O.h * 0.06 + 0.16 - Math.floor(i / 7) * 0.12, -DEPTH_W + 0.13),
+        qS2.identity(), new V3(1, 1, 1));
+      swBrk.setMatrixAt(i, mS2);
+    }
+    swBrk.instanceMatrix.needsUpdate = true; grp.add(swBrk);
+    // a valve station on the riser that already crosses the space
+    for (const [vy, vx] of [[-O.h * 0.22, -0.30], [-O.h * 0.22, 0.26]]) {
+      const vb = new THREE.Mesh(new THREE.CylinderGeometry(0.075, 0.075, 0.12, 10), farLit);
+      vb.position.set(vx, vy, -0.42); grp.add(vb);
+      const vw2 = new THREE.Mesh(new THREE.TorusGeometry(0.085, 0.013, 5, 12), farLit);
+      vw2.rotation.x = Math.PI / 2; vw2.position.set(vx, vy + 0.13, -0.42); grp.add(vw2);
+    }
+    // a motor on a bedplate, lying on the far floor
+    const mtr = new THREE.Mesh(new THREE.CylinderGeometry(0.11, 0.11, 0.32, 12), farLit);
+    mtr.rotation.z = Math.PI / 2;
+    mtr.position.set(-0.46, -O.h * 0.5 + 0.14, -0.88); grp.add(mtr);
+    const bed = new THREE.Mesh(new THREE.BoxGeometry(0.44, 0.05, 0.26), beyond);
+    bed.position.set(-0.46, -O.h * 0.5 + 0.025, -0.88); grp.add(bed);
+    // A WORKING LIGHT deep in there. Same reasoning as the space behind the door:
+    // without its own source the hall only exists when the player points at it.
+    const hallLamp = new THREE.PointLight(0x8fb0c8, 0.85, 2.2, 2);
+    hallLamp.position.set(0.30, O.h * 0.30, -DEPTH_W + 0.35); grp.add(hallLamp);
+    this.machineHallLight = hallLamp;
+
     this.window = grp;
   }
 
@@ -1075,6 +1174,23 @@ export class Room {
     // (Three short rods used to hang here from nothing at all, tilted at random,
     //  crossing the cable tray. They represented no object and were the "bar in
     //  the middle of the room" that clipped everything. Deleted, not re-dressed.)
+
+    // ---- LEFT WALL, FORWARD: a two-tier bracket shelf ----------------------
+    // Added because the battery spots had to move somewhere the player can
+    // actually see, and the left wall forward of the door had nothing on it to
+    // stand a cell on.
+    const brk2 = new THREE.Group(); brk2.position.set(-1.44, 0, -0.42); this.group.add(brk2);
+    for (const [sy, sd] of [[0.64, 0.26], [0.28, 0.22]]) {
+      const sh2 = new THREE.Mesh(new THREE.BoxGeometry(sd, 0.026, 0.52), this.bearer);
+      sh2.position.set(sd / 2 - 0.01, sy, 0); sh2.castShadow = sh2.receiveShadow = true; brk2.add(sh2);
+      // the angle bracket under it, which is what makes a shelf read as fixed
+      for (const bz of [-0.20, 0.20]) {
+        const ab = new THREE.Mesh(new THREE.BoxGeometry(sd - 0.03, 0.02, 0.02), this.dryMech);
+        ab.position.set(sd / 2 - 0.02, sy - 0.02, bz); brk2.add(ab);
+        const dg = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.10, 0.018), this.dryMech);
+        dg.position.set(0.02, sy - 0.06, bz); dg.rotation.z = -0.7; brk2.add(dg);
+      }
+    }
 
     // ---- LEFT-BACK: shelving on the left wall, clear of the door aperture ----
     const shelf = new THREE.Group(); shelf.position.set(-1.34, 0, 1.20); this.group.add(shelf);
@@ -1648,6 +1764,16 @@ export class Room {
     const hours = CONFIG.game.clockFrom + frac * (CONFIG.game.clockTo - CONFIG.game.clockFrom);
     this.clock.hour.rotation.z = -(hours / 12) * Math.PI * 2;
     this.clock.minute.rotation.z = -((hours % 1)) * Math.PI * 2;
+    // STRIKE ON THE HOUR. The clock is the only thing telling the player how much
+    // of the shift is left, and until now it said so silently — you had to think
+    // to look up. One strike per hour puts that information in the ear, where it
+    // costs no attention, and turns the passage of time into pressure.
+    const h = Math.floor(hours);
+    if (this._lastHour === undefined) { this._lastHour = h; return; }
+    if (h !== this._lastHour) {
+      this._lastHour = h;
+      if (this.onHour) this.onHour(h);
+    }
   }
 
 }
