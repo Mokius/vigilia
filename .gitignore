@@ -3,7 +3,7 @@ node_modules/
 .tmp_pipeline_test/
 .tmp_pp/
 assets/mixamo/raw/*.fbx
-assets/mixamo/raw/anims/*.fbx
-assets/models/*.glb
+# assets/mixamo/raw/anims/*.fbx
+# assets/models/*.glb
 # Mixamo source drop: 120 MB of FBX. The built GLBs in assets/models/ are what ships.
-assets/mixamo/raw/
+# assets/mixamo/raw/
